@@ -47,8 +47,8 @@ static long long user_ticks; /* 사용자 프로그램의 타이머 틱 수입�
 /* 스케줄링. */
 #define TIME_SLICE 4 /* 각 스레드에 부여할 타이머 틱 수입니다. */
 static unsigned thread_ticks; /* 마지막 양보 이후 타이머 틱 수입니다. */
-// sleep list에서 대기중인 스레드들의 wakeup_tick 최솟값
-static unsigned next_tick_to_awake;
+// // sleep list에서 대기중인 스레드들의 wakeup_tick 최솟값
+// static unsigned next_tick_to_awake;
 /* false(기본값)이면 라운드 로빈 스케줄러를 사용합니다.
    true이면 multi-level feedback queue scheduler를 사용합니다.
    커널 명령줄 옵션 "-o mlfqs"로 제어합니다. */
@@ -577,26 +577,43 @@ allocate_tid (void) {
 	return tid;
 }
 
+static bool
+thread_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->wakeup_tick < b->wakeup_tick;
+}
+
 void thread_sleep(int64_t ticks) {
 	struct thread *th_curr = thread_current();
+	
 	enum intr_level old_level;
 
 	old_level = intr_disable();
 	th_curr->wakeup_tick = ticks;
-	list_insert_ordered(&sleep_list, th_curr, less, NULL);
+	list_insert_ordered(&sleep_list, th_curr, thread_less, NULL);
 	thread_block();
 	intr_set_level(old_level);
 }
 
 void thread_awake(int64_t ticks) {
+	enum intr_level old_level;
 	struct list_elem *sleep_curr = list_begin(&sleep_list);
-	while (sleep_curr->next != NULL)
-		if (sleep_curr->wakeup_tick > tick )
+
+	old_level = intr_disable();
+	while (sleep_curr != list_end(&sleep_list)){
+		struct thread *sleep_curr_thread = list_entry(sleep_curr ,struct thread, elem);
+		if (sleep_curr_thread->wakeup_tick > ticks )
 		{
-			return;
+			break;
 		}
 		// 인자 미정
-		thread_unblock(sleep_curr);
+		thread_unblock(sleep_curr_thread);
 		list_pop_front(&sleep_list);
-		sleep_curr = sleep_curr->next;
+		sleep_curr = list_begin(&sleep_list);
+	}
+	intr_set_level(old_level);
 }
