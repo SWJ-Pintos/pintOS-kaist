@@ -610,7 +610,7 @@ void thread_awake(int64_t ticks) {
 		{
 			break;
 		}
-		// 인자 미정
+		// 인자 미정 읭
 		list_pop_front(&sleep_list);
 		thread_unblock(sleep_curr_thread);
 		sleep_curr = list_begin(&sleep_list);
