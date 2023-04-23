@@ -591,8 +591,8 @@ void thread_sleep(int64_t ticks) {
 	struct thread *th_curr = thread_current();
 	
 	enum intr_level old_level;
-
 	old_level = intr_disable();
+
 	th_curr->wakeup_tick = ticks;
 	list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
 	thread_block();
@@ -600,20 +600,27 @@ void thread_sleep(int64_t ticks) {
 }
 
 void thread_awake(int64_t ticks) {
-	enum intr_level old_level;
 	struct list_elem *sleep_curr = list_begin(&sleep_list);
 
+	enum intr_level old_level;
 	old_level = intr_disable();
+
 	while (sleep_curr != list_end(&sleep_list)){
 		struct thread *sleep_curr_thread = list_entry(sleep_curr ,struct thread, elem);
+
 		if (sleep_curr_thread->wakeup_tick > ticks )
 		{
 			break;
 		}
-		// 인자 미정
 		list_pop_front(&sleep_list);
 		thread_unblock(sleep_curr_thread);
 		sleep_curr = list_begin(&sleep_list);
+		// 오류났던 코드: 
+		// thread_unblock(sleep_curr_thread);
+		// list_pop_front(&sleep_list);
+		// sleep_curr = list_begin(&sleep_list);
+		// sleep_curr_thread가 여전히 sleep_list의 맨 앞 요소인 상태에서 ready_list에 list_push_back이 되어, 마치 sleep_list의 맨 앞과 ready_list의 맨 뒤가 연결되버리는 오류 상황이 발생했다.
+		// 그래서 다음 스레드에 대한 thread_awake() 수행의 thread_unblock() 중 ASSERT (t->status == THREAD_BLOCKED);에서 계속 터졌었다. 이미 ready인 상태의 스레드들이 thread_unblock()에 들어온 것.
 	}
 	intr_set_level(old_level);
 }
