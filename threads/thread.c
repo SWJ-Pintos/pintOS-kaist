@@ -203,6 +203,26 @@ thread_create (const char *name, int priority,
 	return tid;
 }
 
+static bool
+thread_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->wakeup_tick < b->wakeup_tick;
+}
+
+static bool
+priority_more (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->priority > b->priority;
+}
+
 /* Puts the current thread to sleep.  
 It will not be scheduled again until awoken by thread_unblock().
 
@@ -230,7 +250,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -291,7 +311,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, priority_more, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -575,16 +595,6 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
-}
-
-static bool
-thread_less (const struct list_elem *a_, const struct list_elem *b_,
-            void *aux UNUSED) 
-{
-  const struct thread *a = list_entry (a_, struct thread, elem);
-  const struct thread *b = list_entry (b_, struct thread, elem);
-  
-  return a->wakeup_tick < b->wakeup_tick;
 }
 
 void thread_sleep(int64_t ticks) {
