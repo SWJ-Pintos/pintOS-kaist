@@ -594,7 +594,7 @@ void thread_sleep(int64_t ticks) {
 
 	old_level = intr_disable();
 	th_curr->wakeup_tick = ticks;
-	list_insert_ordered(&sleep_list, th_curr, thread_less, NULL);
+	list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
 	thread_block();
 	intr_set_level(old_level);
 }
@@ -611,8 +611,8 @@ void thread_awake(int64_t ticks) {
 			break;
 		}
 		// 인자 미정
-		thread_unblock(sleep_curr_thread);
 		list_pop_front(&sleep_list);
+		thread_unblock(sleep_curr_thread);
 		sleep_curr = list_begin(&sleep_list);
 	}
 	intr_set_level(old_level);
