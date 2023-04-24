@@ -186,7 +186,7 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
-	/* 예약된 경우 kernel_thread를 호출합니다.
+	/* schedule된 경우 kernel_thread를 호출합니다.
 	 * 참고) rdi는 첫번째 인자, rsi는 두번째 인자입니다. */
 	t->tf.rip = (uintptr_t) kernel_thread;
 	t->tf.R.rdi = (uint64_t) function;
@@ -196,9 +196,13 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
+
+	if ( thread_get_priority() < t->priority ) {
+		thread_yield();
+	}
 
 	return tid;
 }
@@ -252,6 +256,7 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
+	
 	intr_set_level (old_level);
 }
 
@@ -320,6 +325,10 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+
+	if ( list_entry (list_front (&ready_list), struct thread, elem)->priority > new_priority ) {
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -624,6 +633,9 @@ void thread_awake(int64_t ticks) {
 		}
 		list_pop_front(&sleep_list);
 		thread_unblock(sleep_curr_thread);
+		if ( sleep_curr_thread->priority > thread_get_priority() ) {
+			thread_yield();
+		}
 		sleep_curr = list_begin(&sleep_list);
 		// 오류났던 코드: 
 		// thread_unblock(sleep_curr_thread);
