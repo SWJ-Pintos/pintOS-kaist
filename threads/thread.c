@@ -112,7 +112,7 @@ thread_init (void) {
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
-	
+	// list_entry(list_front(&initial_thread->donor_list), struct thread, donor_elem)->priority = initial_thread->priority;
 }
 
 /* 인터럽트를 활성화하여 preemptive 스레드 스케줄링을 시작합니다.
@@ -252,6 +252,10 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
+
+	if (t->priority > thread_current()->priority) {
+		thread_yield();
+	}
 	intr_set_level (old_level);
 }
 
@@ -320,6 +324,8 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+		thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -416,7 +422,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->tmp_priority = priority;
 	t->magic = THREAD_MAGIC;
+	list_init (&t->donor_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -573,7 +581,7 @@ schedule (void) {
 		   currently used by the stack.
 		   The real destruction logic will be called at the beginning of the
 		   schedule(). */
-		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
+		if (curr && curr->status == THREAD_DYING && curr != idle_thread) {
 			ASSERT (curr != next);
 			list_push_back (&destruction_req, &curr->elem);
 		}

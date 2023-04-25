@@ -37,6 +37,16 @@ sema_init (struct semaphore *sema, unsigned value) {
 이 함수는 잠자기 상태가 될 수 있으므로,   인터럽트 핸들러 내에서 호출해서는 안 됩니다.  이 함수는 인터럽트를 비활성화한 상태에서 호출할 수 있습니다.
 인터럽트를 비활성화한 상태에서 호출할 수 있지만, 잠자기 상태가 되면 다음 스케줄된 스레드가 인터럽트를 다시 켜게 됩니다. 이 함수는 sema_down 함수입니다. 
 */
+static bool
+sema_priority_more (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->priority > b->priority;
+}
+
 void
 sema_down (struct semaphore *sema) {
 	enum intr_level old_level;
@@ -46,7 +56,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, sema_priority_more, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -89,9 +99,10 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
 	sema->value++;
+	if (!list_empty (&sema->waiters)) {
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+	}
 	intr_set_level (old_level);
 }
 
@@ -149,6 +160,18 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+void
+priority_donate (struct lock *lock) {
+	enum intr_level old_level;
+	old_level = intr_disable();
+
+	lock->holder->tmp_priority = lock->holder->priority;
+	list_push_front(&lock->holder->donor_list, &thread_current()->donor_elem);
+	lock->holder->priority = thread_get_priority();
+	
+	intr_set_level(old_level);
+}
+
 /* 필요한 경우 잠금을 획득하고 잠금을 사용할 수 있을 때까지 대기합니다. 현재 스레드가 이미 잠금을 보유하고 있지 않아야 합니다.
 
    이 함수는 잠자기 상태일 수 있으므로 인터럽트 핸들러 내에서 호출해서는 안 됩니다.
@@ -158,6 +181,10 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+
+	if (lock->holder && lock->holder->priority < thread_get_priority()) {
+		priority_donate(lock);
+	}
 
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
@@ -189,6 +216,9 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	if ((!list_empty(&lock->holder->donor_list))) {
+		lock->holder->priority = list_entry(list_pop_front(&lock->holder->donor_list), struct thread, donor_elem)->tmp_priority;
+	}
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
