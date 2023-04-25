@@ -46,7 +46,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, priority_more, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -89,9 +89,9 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
+	sema->value++;
 	if (!list_empty (&sema->waiters))
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
-	sema->value++;
 	intr_set_level (old_level);
 }
 
@@ -159,8 +159,17 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	enum intr_level old_level;
+	old_level = intr_disable();
+
+	if (lock->holder && lock->holder->priority < thread_get_priority()) {
+		priority_donate(lock);
+	}
+
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
+	intr_set_level(old_level);
+
 }
 
 /* LOCK을 획득하려고 시도하고 성공하면 true를, 실패하면 false를 반환합니다.
@@ -189,6 +198,9 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	if ((!list_empty(&lock->holder->donation_list)) && thread_get_priority() != list_entry(list_front(&lock->holder->donation_list), struct thread, elem)->priority)
+		lock->holder->priority = list_entry(list_pop_front(&lock->holder->donation_list), struct thread, elem)->priority;
+		
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
@@ -207,6 +219,18 @@ struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
 };
+
+// Priority 
+void
+priority_donate (struct lock *lock) {
+	enum intr_level old_level;
+	old_level = intr_disable();
+
+	list_push_front(&lock->holder->donation_list, &thread_current()->elem);
+	lock->holder->priority = thread_get_priority();
+	
+	intr_set_level(old_level);
+}
 
 /* 조건 변수 COND를 초기화합니다. 
    조건 변수를 사용하면 한 코드가 조건에 대한 신호를 보내고 협력 코드가 신호를 수신하고 그에 따라 동작할 수 있습니다. */

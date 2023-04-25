@@ -112,7 +112,7 @@ thread_init (void) {
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
-	
+	// list_push_front(&initial_thread->donation_list, &initial_thread->elem);
 }
 
 /* 인터럽트를 활성화하여 preemptive 스레드 스케줄링을 시작합니다.
@@ -200,10 +200,6 @@ thread_create (const char *name, int priority,
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
-	if ( thread_get_priority() < t->priority ) {
-		thread_yield();
-	}
-
 	return tid;
 }
 
@@ -217,7 +213,7 @@ thread_less (const struct list_elem *a_, const struct list_elem *b_,
   return a->wakeup_tick < b->wakeup_tick;
 }
 
-static bool
+bool
 priority_more (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED) 
 {
@@ -258,6 +254,10 @@ thread_unblock (struct thread *t) {
 	t->status = THREAD_READY;
 	
 	intr_set_level (old_level);
+
+	if ( thread_get_priority() < t->priority ) {
+		thread_yield();
+	}
 }
 
 /* Returns the name of the running thread. */
@@ -325,6 +325,10 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	
+	if (list_empty(&ready_list)) {
+		return;
+	}
 
 	if ( list_entry (list_front (&ready_list), struct thread, elem)->priority > new_priority ) {
 		thread_yield();
@@ -426,6 +430,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	list_init(&(t->donation_list));
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -633,9 +638,6 @@ void thread_awake(int64_t ticks) {
 		}
 		list_pop_front(&sleep_list);
 		thread_unblock(sleep_curr_thread);
-		if ( sleep_curr_thread->priority > thread_get_priority() ) {
-			thread_yield();
-		}
 		sleep_curr = list_begin(&sleep_list);
 		// 오류났던 코드: 
 		// thread_unblock(sleep_curr_thread);

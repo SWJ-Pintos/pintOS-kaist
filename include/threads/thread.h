@@ -92,6 +92,9 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 	int wakeup_tick;
+	// int origin_priority;
+	
+	struct list donation_list;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -147,9 +150,7 @@ void do_iret (struct intr_frame *tf);
 void thread_sleep(int64_t ticks);
 // 슬립큐에서 깨워야 할 스레드를 깨움
 void thread_awake(int64_t ticks);
-// 최소 틱을 가진 스레드 저장
-void update_next_tick_to_awake(int64_t ticks);
-// thread.c 의 next_tick_to_awake 반환
-int64_t get_next_tick_to_awake(void);
+
+bool priority_more (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 
 #endif /* threads/thread.h */
