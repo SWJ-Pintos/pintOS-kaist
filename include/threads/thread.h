@@ -92,10 +92,7 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 	int wakeup_tick;
-	// int origin_priority;
-	
-	struct list donation_list;
-
+	int origin_priority;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 

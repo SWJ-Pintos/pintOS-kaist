@@ -131,6 +131,9 @@ sema_test_helper (void *sema_) {
 	}
 }
 
+
+
+
 /* LOCK을 초기화합니다.  잠금은 주어진 시간에 최대 하나의
    스레드만 보유할 수 있습니다.  우리의 잠금은 "재귀적"이 아닙니다.
    즉, 현재 잠금을 보유하고 있는 스레드가 해당 잠금을 획득하려고 하면
@@ -159,17 +162,11 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-	enum intr_level old_level;
-	old_level = intr_disable();
-
-	if (lock->holder && lock->holder->priority < thread_get_priority()) {
+	if (lock->holder != NULL && lock->holder->priority < thread_get_priority()) {
 		priority_donate(lock);
 	}
-
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
-	intr_set_level(old_level);
-
 }
 
 /* LOCK을 획득하려고 시도하고 성공하면 true를, 실패하면 false를 반환합니다.
@@ -197,10 +194,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
-	if ((!list_empty(&lock->holder->donation_list)) && thread_get_priority() != list_entry(list_front(&lock->holder->donation_list), struct thread, elem)->priority)
-		lock->holder->priority = list_entry(list_pop_front(&lock->holder->donation_list), struct thread, elem)->priority;
-		
+	if (lock->holder->priority != lock->holder->origin_priority) {
+		lock->holder->priority = lock->holder->origin_priority;
+	}
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
@@ -220,18 +216,10 @@ struct semaphore_elem {
 	struct semaphore semaphore;         /* This semaphore. */
 };
 
-// Priority 
 void
 priority_donate (struct lock *lock) {
-	enum intr_level old_level;
-	old_level = intr_disable();
-
-	list_push_front(&lock->holder->donation_list, &thread_current()->elem);
-	lock->holder->priority = thread_get_priority();
-	
-	intr_set_level(old_level);
+	lock->holder->priority = thread_current()->priority;
 }
-
 /* 조건 변수 COND를 초기화합니다. 
    조건 변수를 사용하면 한 코드가 조건에 대한 신호를 보내고 협력 코드가 신호를 수신하고 그에 따라 동작할 수 있습니다. */
 void

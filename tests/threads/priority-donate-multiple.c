@@ -58,10 +58,8 @@ static void
 a_thread_func (void *lock_) 
 {
   struct lock *lock = lock_;
+
   lock_acquire (lock);
-
-printf("am i here ? \n");
-
   msg ("Thread a acquired lock a.");
   lock_release (lock);
   msg ("Thread a finished.");

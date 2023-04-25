@@ -47,8 +47,7 @@ static long long user_ticks; /* 사용자 프로그램의 타이머 틱 수입�
 /* 스케줄링. */
 #define TIME_SLICE 4 /* 각 스레드에 부여할 타이머 틱 수입니다. */
 static unsigned thread_ticks; /* 마지막 양보 이후 타이머 틱 수입니다. */
-// // sleep list에서 대기중인 스레드들의 wakeup_tick 최솟값
-// static unsigned next_tick_to_awake;
+
 /* false(기본값)이면 라운드 로빈 스케줄러를 사용합니다.
    true이면 multi-level feedback queue scheduler를 사용합니다.
    커널 명령줄 옵션 "-o mlfqs"로 제어합니다. */
@@ -112,7 +111,6 @@ thread_init (void) {
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
-	// list_push_front(&initial_thread->donation_list, &initial_thread->elem);
 }
 
 /* 인터럽트를 활성화하여 preemptive 스레드 스케줄링을 시작합니다.
@@ -200,6 +198,10 @@ thread_create (const char *name, int priority,
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
+	if (thread_get_priority() < t ->priority) {
+		thread_yield();
+	}
+	
 	return tid;
 }
 
@@ -249,15 +251,13 @@ thread_unblock (struct thread *t) {
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
+	
 	ASSERT (t->status == THREAD_BLOCKED);
+	
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
 	
 	intr_set_level (old_level);
-
-	if ( thread_get_priority() < t->priority ) {
-		thread_yield();
-	}
 }
 
 /* Returns the name of the running thread. */
@@ -315,9 +315,11 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
+	
 	if (curr != idle_thread)
 		list_insert_ordered(&ready_list, &curr->elem, priority_more, NULL);
 	do_schedule (THREAD_READY);
+
 	intr_set_level (old_level);
 }
 
@@ -429,8 +431,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->origin_priority = priority;
 	t->magic = THREAD_MAGIC;
-	list_init(&(t->donation_list));
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -612,38 +614,49 @@ allocate_tid (void) {
 }
 
 void thread_sleep(int64_t ticks) {
-	struct thread *th_curr = thread_current();
+	struct thread *curr_th = thread_current();
+
+	ASSERT(curr_th != idle_thread);
 	
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	th_curr->wakeup_tick = ticks;
-	list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
-	thread_block();
+	curr_th->wakeup_tick = ticks;
+
+	if (curr_th != idle_thread) 
+	{
+		list_insert_ordered(&sleep_list, &curr_th->elem, thread_less, NULL);
+		do_schedule(THREAD_BLOCKED); // thread_block(); 이었는데 바꿔줌.
+	} 
+	else 
+	{
+		do_schedule(THREAD_RUNNING);
+	}
+	
 	intr_set_level(old_level);
 }
 
 void thread_awake(int64_t ticks) {
-	struct list_elem *sleep_curr = list_begin(&sleep_list);
+	struct list_elem *curr_sleep = list_begin(&sleep_list);
 
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	while (sleep_curr != list_end(&sleep_list)){
-		struct thread *sleep_curr_thread = list_entry(sleep_curr ,struct thread, elem);
+	while (curr_sleep != list_end(&sleep_list)){
+		struct thread *curr_sleep_th = list_entry(curr_sleep, struct thread, elem);
 
-		if (sleep_curr_thread->wakeup_tick > ticks )
+		if (curr_sleep_th->wakeup_tick > ticks ) // 오류났던 코드: >= 라고 했었음.
 		{
 			break;
 		}
 		list_pop_front(&sleep_list);
-		thread_unblock(sleep_curr_thread);
-		sleep_curr = list_begin(&sleep_list);
+		thread_unblock(curr_sleep_th);
+		curr_sleep = list_begin(&sleep_list);
 		// 오류났던 코드: 
-		// thread_unblock(sleep_curr_thread);
+		// thread_unblock(curr_sleep_th);
 		// list_pop_front(&sleep_list);
-		// sleep_curr = list_begin(&sleep_list);
-		// sleep_curr_thread가 여전히 sleep_list의 맨 앞 요소인 상태에서 ready_list에 list_push_back이 되어, 마치 sleep_list의 맨 앞과 ready_list의 맨 뒤가 연결되버리는 오류 상황이 발생했다.
+		// curr_sleep = list_begin(&sleep_list);
+		// curr_sleep_th가 여전히 sleep_list의 맨 앞 요소인 상태에서 ready_list에 list_push_back이 되어, 마치 sleep_list의 맨 앞과 ready_list의 맨 뒤가 연결되버리는 오류 상황이 발생했다.
 		// 그래서 다음 스레드에 대한 thread_awake() 수행의 thread_unblock() 중 ASSERT (t->status == THREAD_BLOCKED);에서 계속 터졌었다. 이미 ready인 상태의 스레드들이 thread_unblock()에 들어온 것.
 	}
 	intr_set_level(old_level);
