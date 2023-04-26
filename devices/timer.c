@@ -121,9 +121,9 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
-	thread_awake(ticks);
-	// if (get_next_tick_to_awake() <= ticks) { // 매 틱마다 깨우는 것이 아니라 깨울 틱을 확인하고 깨움.
-	// }
+	if (get_next_tick_to_awake() <= ticks) { // 매 틱마다 깨우는 것이 아니라 깨울 틱을 확인하고 깨움.
+		thread_awake(ticks);
+	}
 }
 
 /* LOOPS 반복이 타이머 틱을 두 번 이상 기다리면 참을 반환하고, 그렇지 않으면 거짓을 반환합니다. */

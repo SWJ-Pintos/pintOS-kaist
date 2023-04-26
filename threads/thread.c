@@ -204,6 +204,10 @@ thread_create (const char *name, int priority,
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
+	if (t->priority > thread_current()->priority) {
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -257,9 +261,9 @@ thread_unblock (struct thread *t) {
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
 
-	if (t->priority > thread_current()->priority) {
-		thread_yield();
-	}
+	// if (t->priority > thread_current()->priority) {
+	// 	thread_yield();
+	// }
 	intr_set_level (old_level);
 }
 
@@ -641,27 +645,28 @@ void update_next_tick_to_awake(int64_t ticks) {
 }
 
 void thread_awake(int64_t ticks) {
-	struct list_elem *sleep_curr = list_begin(&sleep_list);
+	struct list_elem *sleep_curr_elem = list_begin(&sleep_list);
 	struct thread *sleep_curr_t;
 	next_tick_to_awake = INT64_MAX;
 	
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	while (sleep_curr != list_end(&sleep_list)){
-		sleep_curr_t = list_entry(sleep_curr, struct thread, elem);
+	while (sleep_curr_elem != list_end(&sleep_list)){
+		sleep_curr_t = list_entry(sleep_curr_elem, struct thread, elem);
 
 		if (sleep_curr_t->wakeup_tick > ticks )
 		{
 			update_next_tick_to_awake(sleep_curr_t->wakeup_tick);
 			break;
 		}
-		sleep_curr = list_remove(&sleep_curr_t->elem);
-		thread_unblock(sleep_curr_t);
+		sleep_curr_elem = list_remove(&sleep_curr_t->elem);
+		thread_unblock(sleep_curr_t); // sleep_awake() 안의 thread_yield()를 뺐더니 깨졌던 알람 테게들이 통과했다~!
+
 		// 오류났던 코드: 
 		// thread_unblock(sleep_curr_thread);
 		// list_pop_front(&sleep_list);
-		// sleep_curr = list_begin(&sleep_list);
+		// sleep_curr_elem = list_begin(&sleep_list);
 		// sleep_curr_thread가 여전히 sleep_list의 맨 앞 요소인 상태에서 ready_list에 list_push_back이 되어, 마치 sleep_list의 맨 앞과 ready_list의 맨 뒤가 연결되버리는 오류 상황이 발생했다.
 		// 그래서 다음 스레드에 대한 thread_awake() 수행의 thread_unblock() 중 ASSERT (t->status == THREAD_BLOCKED);에서 계속 터졌었다. 이미 ready인 상태의 스레드들이 thread_unblock()에 들어온 것.
 	}

@@ -101,7 +101,11 @@ sema_up (struct semaphore *sema) {
 	old_level = intr_disable ();
 	sema->value++;
 	if (!list_empty (&sema->waiters)) {
+		struct thread *th = list_entry (list_front (&sema->waiters), struct thread, elem);
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+		if (th->priority > thread_current()->priority) {
+			thread_yield();
+		}
 	}
 	intr_set_level (old_level);
 }
@@ -172,7 +176,7 @@ priority_donate (struct lock *lock) {
 		}
 		curr_th = curr_th->wait_on_lock->holder;
 		curr_th->priority = curr_priority;
-		
+
 		// list_push_front(&lock->holder->donor_list, &thread_current()->donor_elem);
 		// list_sort(&lock->holder->donor_list, sema_priority_more, NULL);
 
@@ -181,18 +185,31 @@ priority_donate (struct lock *lock) {
 	}
 }
 
-void
-remove_with_lock (struct lock *lock) {
-	struct thread *curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
+// void
+// remove_with_lock (struct lock *lock) {
+// 	struct thread *curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
 	
-	while (curr_th->wait_on_lock->holder!=NULL) {
-		struct list_elem *curr_donor_elem = list_begin(&curr_th->donor_list);
+// 	while (curr_th->wait_on_lock->holder!=NULL) {
+// 		struct list_elem *curr_donor_elem = list_begin(&curr_th->donor_list);
 
-		if (curr_th->wait_on_lock == lock) {
-			curr_donor_elem = list_remove(curr_donor_elem);
-		}
-		curr_th = curr_th->wait_on_lock->holder;
-	}
+// 		if (curr_th->wait_on_lock == lock) {
+// 			curr_donor_elem = list_remove(curr_donor_elem);
+// 		}
+// 		curr_th = curr_th->wait_on_lock->holder;
+// 	}
+// }
+
+void
+remove_with_lock (struct lock *lock)
+{
+  struct list_elem *e;
+  struct thread *cur = thread_current ();
+
+  for (e = list_begin (&cur->donor_list); e != list_end (&cur->donor_list); e = list_next (e)){
+    struct thread *t = list_entry (e, struct thread, donor_elem);
+    if (t->wait_on_lock == lock)
+      list_remove (&t->donor_elem);
+  }
 }
 
 void 
