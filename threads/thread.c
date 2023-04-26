@@ -23,6 +23,8 @@
 /* 기본 스레드의 임의 값 이 값을 수정하지 마십시오. */
 #define THREAD_BASIC 0xd42df210
 
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+
 /* THREAD_READY 상태의 프로세스 목록, 즉 실행할 준비가 되었지만 실제로 실행되지는 않은 프로세스의 목록입니다. */
 static struct list ready_list;
 // 자고 있는 스레드 리스트
@@ -43,6 +45,8 @@ static struct list destruction_req;
 static long long idle_ticks; /* 유휴 상태로 보낸 타이머 틱 수입니다. */
 static long long kernel_ticks; /* 커널 스레드의 타이머 틱 수입니다. */
 static long long user_ticks; /* 사용자 프로그램의 타이머 틱 수입니다. */
+
+static long long next_tick_to_awake;
 
 /* 스케줄링. */
 #define TIME_SLICE 4 /* 각 스레드에 부여할 타이머 틱 수입니다. */
@@ -106,13 +110,13 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&destruction_req);
 	list_init (&sleep_list);
+	next_tick_to_awake = INT64_MAX;
 
 	/* 실행 중인 스레드에 대한 스레드 구조를 설정합니다. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
-	
 }
 
 /* 인터럽트를 활성화하여 preemptive 스레드 스케줄링을 시작합니다.
@@ -200,6 +204,10 @@ thread_create (const char *name, int priority,
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
+	if (t->priority > thread_current()->priority) {
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -252,6 +260,10 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
+
+	// if (t->priority > thread_current()->priority) {
+	// 	thread_yield();
+	// }
 	intr_set_level (old_level);
 }
 
@@ -319,7 +331,16 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	thread_current ()->origin_priority = new_priority;
+	
+	refresh_priority();
+	
+	if (list_empty(&ready_list)) {
+		return;
+	}
+	if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -416,7 +437,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->origin_priority = priority;
+	t->wait_on_lock = NULL;
 	t->magic = THREAD_MAGIC;
+	list_init (&t->donor_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -573,7 +597,7 @@ schedule (void) {
 		   currently used by the stack.
 		   The real destruction logic will be called at the beginning of the
 		   schedule(). */
-		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
+		if (curr && curr->status == THREAD_DYING && curr != idle_thread) {
 			ASSERT (curr != next);
 			list_push_back (&destruction_req, &curr->elem);
 		}
@@ -604,31 +628,45 @@ void thread_sleep(int64_t ticks) {
 	old_level = intr_disable();
 
 	th_curr->wakeup_tick = ticks;
-	list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
-	thread_block();
+	if (th_curr != idle_thread) {
+		list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
+	}
+	update_next_tick_to_awake(ticks);
+	do_schedule(THREAD_BLOCKED);
 	intr_set_level(old_level);
 }
 
-void thread_awake(int64_t ticks) {
-	struct list_elem *sleep_curr = list_begin(&sleep_list);
+int64_t get_next_tick_to_awake(void) {
+	return next_tick_to_awake;
+}
 
+void update_next_tick_to_awake(int64_t ticks) {
+	next_tick_to_awake = min(next_tick_to_awake, ticks);
+}
+
+void thread_awake(int64_t ticks) {
+	struct list_elem *sleep_curr_elem = list_begin(&sleep_list);
+	struct thread *sleep_curr_t;
+	next_tick_to_awake = INT64_MAX;
+	
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	while (sleep_curr != list_end(&sleep_list)){
-		struct thread *sleep_curr_thread = list_entry(sleep_curr ,struct thread, elem);
+	while (sleep_curr_elem != list_end(&sleep_list)){
+		sleep_curr_t = list_entry(sleep_curr_elem, struct thread, elem);
 
-		if (sleep_curr_thread->wakeup_tick > ticks )
+		if (sleep_curr_t->wakeup_tick > ticks )
 		{
+			update_next_tick_to_awake(sleep_curr_t->wakeup_tick);
 			break;
 		}
-		list_pop_front(&sleep_list);
-		thread_unblock(sleep_curr_thread);
-		sleep_curr = list_begin(&sleep_list);
+		sleep_curr_elem = list_remove(&sleep_curr_t->elem);
+		thread_unblock(sleep_curr_t); // sleep_awake() 안의 thread_yield()를 뺐더니 깨졌던 알람 테게들이 통과했다~!
+
 		// 오류났던 코드: 
 		// thread_unblock(sleep_curr_thread);
 		// list_pop_front(&sleep_list);
-		// sleep_curr = list_begin(&sleep_list);
+		// sleep_curr_elem = list_begin(&sleep_list);
 		// sleep_curr_thread가 여전히 sleep_list의 맨 앞 요소인 상태에서 ready_list에 list_push_back이 되어, 마치 sleep_list의 맨 앞과 ready_list의 맨 뒤가 연결되버리는 오류 상황이 발생했다.
 		// 그래서 다음 스레드에 대한 thread_awake() 수행의 thread_unblock() 중 ASSERT (t->status == THREAD_BLOCKED);에서 계속 터졌었다. 이미 ready인 상태의 스레드들이 thread_unblock()에 들어온 것.
 	}

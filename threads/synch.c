@@ -37,6 +37,16 @@ sema_init (struct semaphore *sema, unsigned value) {
 이 함수는 잠자기 상태가 될 수 있으므로,   인터럽트 핸들러 내에서 호출해서는 안 됩니다.  이 함수는 인터럽트를 비활성화한 상태에서 호출할 수 있습니다.
 인터럽트를 비활성화한 상태에서 호출할 수 있지만, 잠자기 상태가 되면 다음 스케줄된 스레드가 인터럽트를 다시 켜게 됩니다. 이 함수는 sema_down 함수입니다. 
 */
+static bool
+sema_priority_more (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->priority > b->priority;
+}
+
 void
 sema_down (struct semaphore *sema) {
 	enum intr_level old_level;
@@ -46,7 +56,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, sema_priority_more, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -89,9 +99,14 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
 	sema->value++;
+	if (!list_empty (&sema->waiters)) {
+		struct thread *th = list_entry (list_front (&sema->waiters), struct thread, elem);
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+		if (th->priority > thread_current()->priority) {
+			thread_yield();
+		}
+	}
 	intr_set_level (old_level);
 }
 
@@ -149,6 +164,71 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+void
+priority_donate (struct lock *lock) {
+	struct thread *curr_th = thread_current();
+	int curr_priority = curr_th->priority;
+
+	// while (lock->holder->wait_on_lock->holder != NULL) { // 원래 코드...
+	for (int dep=0; dep<8; dep++) {
+		if (!curr_th->wait_on_lock) {
+			break;
+		}
+		curr_th = curr_th->wait_on_lock->holder;
+		curr_th->priority = curr_priority;
+
+		// list_push_front(&lock->holder->donor_list, &thread_current()->donor_elem);
+		// list_sort(&lock->holder->donor_list, sema_priority_more, NULL);
+
+		// lock->holder->priority = thread_get_priority();
+		// curr_th = curr_th->wait_on_lock->holder;
+	}
+}
+
+// void
+// remove_with_lock (struct lock *lock) {
+// 	struct thread *curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
+	
+// 	while (curr_th->wait_on_lock->holder!=NULL) {
+// 		struct list_elem *curr_donor_elem = list_begin(&curr_th->donor_list);
+
+// 		if (curr_th->wait_on_lock == lock) {
+// 			curr_donor_elem = list_remove(curr_donor_elem);
+// 		}
+// 		curr_th = curr_th->wait_on_lock->holder;
+// 	}
+// }
+
+void
+remove_with_lock (struct lock *lock)
+{
+  struct list_elem *e;
+  struct thread *cur = thread_current ();
+
+  for (e = list_begin (&cur->donor_list); e != list_end (&cur->donor_list); e = list_next (e)){
+    struct thread *t = list_entry (e, struct thread, donor_elem);
+    if (t->wait_on_lock == lock)
+      list_remove (&t->donor_elem);
+  }
+}
+
+void 
+refresh_priority(void) {
+	struct thread *curr_th = thread_current();
+
+	curr_th->priority = curr_th->origin_priority;
+
+	if (!list_empty(&curr_th->donor_list)) {
+		list_sort(&curr_th->donor_list, sema_priority_more, NULL);
+
+		struct thread *highest_donor = list_entry(list_front(&curr_th->donor_list), struct thread, donor_elem);
+
+		if (highest_donor->priority > curr_th->priority) {
+			curr_th->priority = highest_donor->priority;
+		}
+	}
+}
+
 /* 필요한 경우 잠금을 획득하고 잠금을 사용할 수 있을 때까지 대기합니다. 현재 스레드가 이미 잠금을 보유하고 있지 않아야 합니다.
 
    이 함수는 잠자기 상태일 수 있으므로 인터럽트 핸들러 내에서 호출해서는 안 됩니다.
@@ -159,8 +239,14 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	if (lock->holder != NULL) {
+		thread_current()->wait_on_lock = lock;
+		list_push_front(&lock->holder->donor_list, &thread_current()->donor_elem);
+		priority_donate(lock);
+	}
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+	thread_current()->wait_on_lock = NULL;
+	lock->holder = thread_current();
 }
 
 /* LOCK을 획득하려고 시도하고 성공하면 true를, 실패하면 false를 반환합니다.
@@ -188,6 +274,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+
+	remove_with_lock(lock);
+	refresh_priority();
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
