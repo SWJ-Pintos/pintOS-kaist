@@ -188,28 +188,27 @@ priority_donate (struct lock *lock) {
 
 // void
 // remove_with_lock (struct lock *lock) {
-// 	struct thread *curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
-	
-// 	while (curr_th->wait_on_lock->holder!=NULL) {
-// 		struct list_elem *curr_donor_elem = list_begin(&curr_th->donor_list);
+// 		struct thread *curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
+// 		while (!list_empty(&thread_current()->donor_list)) {
+// 			struct list_elem *curr_donor_elem = list_begin(&thread_current()->donor_list);
 
-// 		if (curr_th->wait_on_lock == lock) {
-// 			curr_donor_elem = list_remove(curr_donor_elem);
+// 			if (curr_th->wait_on_lock == lock) {
+// 				list_remove(&curr_donor_elem);
+// 			}
+// 			curr_th = list_entry(list_begin(&thread_current()->donor_list), struct thread, donor_elem);
 // 		}
-// 		curr_th = curr_th->wait_on_lock->holder;
 // 	}
-// }
 
 void
 remove_with_lock (struct lock *lock)
 {
-  struct list_elem *e;
-  struct thread *cur = thread_current ();
+  struct list_elem *curr_elem;
+//   struct thread *curr = thread_current ();
 
-  for (e = list_begin (&cur->donor_list); e != list_end (&cur->donor_list); e = list_next (e)){
-    struct thread *t = list_entry (e, struct thread, donor_elem);
-    if (t->wait_on_lock == lock)
-      list_remove (&t->donor_elem);
+  for (curr_elem = list_begin (&lock->holder->donor_list); curr_elem != list_end (&lock->holder->donor_list); curr_elem = list_next (curr_elem)){
+    struct thread *th = list_entry (curr_elem, struct thread, donor_elem);
+    if (th->wait_on_lock == lock)
+      list_remove (&th->donor_elem);
   }
 }
 
