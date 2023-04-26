@@ -23,6 +23,10 @@
 
    - up 또는 "V": 값을 증가시킵니다(대기 중인 스레드가 하나 있다면
    스레드를 깨웁니다). */
+static bool
+cond_priority_more (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED);
+			
 void
 sema_init (struct semaphore *sema, unsigned value) {
 	ASSERT (sema != NULL);
@@ -100,6 +104,7 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	sema->value++;
+	list_sort(&sema->waiters, sema_priority_more, NULL);
 	if (!list_empty (&sema->waiters)) {
 		struct thread *th = list_entry (list_front (&sema->waiters), struct thread, elem);
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
@@ -328,7 +333,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	list_push_back(&cond->waiters, &waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -344,10 +349,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
+	if (!list_empty (&cond->waiters)) {
+		list_sort(&cond->waiters, cond_priority_more, NULL);
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+		sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
+
+	}
 }
 
 	/* COND에서 대기 중인 모든 스레드(있는 경우)를 깨웁니다(LOCK으로 보호됨).
@@ -361,4 +368,15 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
+}
+
+static bool
+cond_priority_more (const struct list_elem *a_, const struct list_elem *b_,void *aux UNUSED) 
+{
+	const struct semaphore_elem *a = list_entry (a_, struct semaphore_elem, elem);
+	const struct semaphore_elem *b = list_entry (b_, struct semaphore_elem, elem);
+
+	const struct thread *a_th = list_entry(list_front(&a->semaphore.waiters), struct thread, elem);
+	const struct thread *b_th = list_entry(list_front(&b->semaphore.waiters), struct thread, elem);
+  return a_th->priority > b_th->priority;
 }
