@@ -86,6 +86,7 @@ timer_elapsed (int64_t then) {
 void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks();
+	
 	ASSERT (intr_get_level () == INTR_ON);
 	thread_sleep(start + ticks);	
 	// while(timer_elapsed(start)<ticks)
@@ -120,8 +121,10 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_awake(ticks);
 	thread_tick ();
+	if (get_next_tick_to_awake() <= ticks) {
+		thread_awake(ticks);
+	}
 }
 
 /* LOOPS 반복이 타이머 틱을 두 번 이상 기다리면 참을 반환하고, 그렇지 않으면 거짓을 반환합니다. */
