@@ -23,6 +23,8 @@
 /* 기본 스레드의 임의 값 이 값을 수정하지 마십시오. */
 #define THREAD_BASIC 0xd42df210
 
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+
 /* THREAD_READY 상태의 프로세스 목록, 즉 실행할 준비가 되었지만 실제로 실행되지는 않은 프로세스의 목록입니다. */
 static struct list ready_list;
 // 자고 있는 스레드 리스트
@@ -43,6 +45,8 @@ static struct list destruction_req;
 static long long idle_ticks; /* 유휴 상태로 보낸 타이머 틱 수입니다. */
 static long long kernel_ticks; /* 커널 스레드의 타이머 틱 수입니다. */
 static long long user_ticks; /* 사용자 프로그램의 타이머 틱 수입니다. */
+
+static long long next_tick_to_awake;
 
 /* 스케줄링. */
 #define TIME_SLICE 4 /* 각 스레드에 부여할 타이머 틱 수입니다. */
@@ -106,6 +110,7 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&destruction_req);
 	list_init (&sleep_list);
+	next_tick_to_awake = INT64_MAX;
 
 	/* 실행 중인 스레드에 대한 스레드 구조를 설정합니다. */
 	initial_thread = running_thread ();
@@ -612,27 +617,40 @@ void thread_sleep(int64_t ticks) {
 	old_level = intr_disable();
 
 	th_curr->wakeup_tick = ticks;
-	list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
-	thread_block();
+	if (th_curr != idle_thread) {
+		list_insert_ordered(&sleep_list, &th_curr->elem, thread_less, NULL);
+	}
+	update_next_tick_to_awake(ticks);
+	do_schedule(THREAD_BLOCKED);
 	intr_set_level(old_level);
+}
+
+int64_t get_next_tick_to_awake(void) {
+	return next_tick_to_awake;
+}
+
+void update_next_tick_to_awake(int64_t ticks) {
+	next_tick_to_awake = min(next_tick_to_awake, ticks);
 }
 
 void thread_awake(int64_t ticks) {
 	struct list_elem *sleep_curr = list_begin(&sleep_list);
-
+	struct thread *sleep_curr_t;
+	next_tick_to_awake = INT64_MAX;
+	
 	enum intr_level old_level;
 	old_level = intr_disable();
 
 	while (sleep_curr != list_end(&sleep_list)){
-		struct thread *sleep_curr_thread = list_entry(sleep_curr ,struct thread, elem);
+		sleep_curr_t = list_entry(sleep_curr, struct thread, elem);
 
-		if (sleep_curr_thread->wakeup_tick > ticks )
+		if (sleep_curr_t->wakeup_tick > ticks )
 		{
+			update_next_tick_to_awake(sleep_curr_t->wakeup_tick);
 			break;
 		}
-		list_pop_front(&sleep_list);
-		thread_unblock(sleep_curr_thread);
-		sleep_curr = list_begin(&sleep_list);
+		sleep_curr = list_remove(&sleep_curr_t->elem);
+		thread_unblock(sleep_curr_t);
 		// 오류났던 코드: 
 		// thread_unblock(sleep_curr_thread);
 		// list_pop_front(&sleep_list);

@@ -1,0 +1,18 @@
+Kernel command line: -q run alarm-zero
+0 ~ 9fc00 1
+100000 ~ 13e0000 1
+Pintos booting with: 
+	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
+	ext_mem: 0x100000 ~ 0x13e0000 (Usable: 19,328 kB)
+Calibrating timer...  129,228,800 loops/s.
+Boot complete.
+Executing 'alarm-zero':
+(alarm-zero) begin
+Kernel PANIC at ../../threads/thread.c:319 in thread_yield(): assertion `!intr_context ()' failed.
+Call stack: 0x800421369e 0x80042070ea 0x8004206ed1 0x8004207b47 0x800420d46c 0x8004208a52 0x8004208e70 0x80042072dc.
+The `backtrace' program can make call stacks useful.
+Read "Backtraces" in the "Debugging Tools" chapter
+of the Pintos documentation for more information.
+Timer: 29 ticks
+Thread: 1 idle ticks, 28 kernel ticks, 0 user ticks
+Console: 
