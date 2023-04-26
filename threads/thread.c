@@ -117,7 +117,6 @@ thread_init (void) {
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
-	// list_entry(list_front(&initial_thread->donor_list), struct thread, donor_elem)->priority = initial_thread->priority;
 }
 
 /* 인터럽트를 활성화하여 preemptive 스레드 스케줄링을 시작합니다.
@@ -328,9 +327,16 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
-	if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+	thread_current ()->origin_priority = new_priority;
+	
+	refresh_priority();
+	
+	if (list_empty(&ready_list)) {
+		return;
+	}
+	if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
 		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -427,7 +433,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	t->tmp_priority = priority;
+	t->origin_priority = priority;
+	t->wait_on_lock = NULL;
 	t->magic = THREAD_MAGIC;
 	list_init (&t->donor_list);
 }
