@@ -204,9 +204,9 @@ thread_create (const char *name, int priority,
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
-	if (t->priority > thread_current()->priority) {
-		thread_yield();
-	}
+	// if (t->priority > thread_current()->priority) {
+	// 	thread_yield();
+	// }
 
 	return tid;
 }
@@ -261,9 +261,9 @@ thread_unblock (struct thread *t) {
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
 	t->status = THREAD_READY;
 
-	// if (t->priority > thread_current()->priority) {
-	// 	thread_yield();
-	// }
+	if (thread_current() != idle_thread && t->priority > thread_current()->priority) {
+		thread_yield();
+	}
 	intr_set_level (old_level);
 }
 
