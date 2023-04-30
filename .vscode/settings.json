@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "tss.h": "c",
+        "syscall.h": "c"
+    }
+}
