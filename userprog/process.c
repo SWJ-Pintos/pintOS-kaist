@@ -50,6 +50,12 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	char *save_ptr;
+	char *token = strtok_r(file_name, " ", &save_ptr); // token에도 담기고, strtok_r()에 의해 file_name도 가공된다.
+	// 변수 fn_copy : 인자로 받았던 원본 그대로. 
+	// 변수 file_name : 파일 이름만 파싱한 것.
+	// strtok_r()는 파라미터 type(const가 빠짐)을 보면 알 수 있듯이 원본 문자열의 값이 변경된다!
+
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -116,6 +122,9 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
+/* 부모의 실행 컨텍스트를 복사하는 스레드 함수. 
+	힌트) parent->tf는 프로세스의 유저랜드 컨텍스트를 보유하지 않습니다.
+	즉, process_fork의 두 번째 인수를 이 함수에 전달해야 합니다. */
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
@@ -177,12 +186,17 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (file_name, &_if); // file_name, _if를 현재 프로세스에 적재(load)한다. 
 
+	palloc_free_page (file_name); // load가 끝나면 user stack에서 메모리를 반환한다.
+	// page를 할당해준 적이 없는데 왜 free를 하는 거지? => palloc()은 load() 함수 내에서 file_name을 메모리에 올리는 과정에서 page allocation을 해준다. 이때, 페이지를 할당해주는 걸 임시로 해주는 것이다.
+	
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
+	// DEBUGGING
+	hex_dump(_if.rsp, _if.rsp, KERN_BASE - _if.rsp, true);
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -204,6 +218,11 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while (1)
+	{
+		;
+	} // syscall 부분... 
+	
 	return -1;
 }
 
@@ -335,6 +354,16 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
+	char *token, *save_ptr;
+	char *argv[128]; // 빈 배열변수 argv를 선언한다.
+	int argc = 0;
+	
+	token = strtok_r(file_name, " ", &save_ptr); // 우리는 file_name이라는 원본을 파일명에 대한 정보만 담게끔 변경시키고, 나머지 인자 내용은 배열 argv에 담을 것이다. 앞서 말했듯 strtok_r()는 원본 문자열의 값이 변경되는 점을 효율적으로 활용하는 것이다.
+	while (token != NULL) {
+		token = strtok_r(NULL, " ", &save_ptr);
+		argv[argc++] = token;
+	}
+
 	/* Open executable file. */
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -416,6 +445,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	argument_stack(argv, argc, if_);	// 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다.
 
 	success = true;
 
@@ -423,6 +453,54 @@ done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
 	return success;
+}
+
+/* argument_stack: 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다. */
+void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
+
+	/* insert arguments' address */
+	char *arg_addr[128];
+
+	// 거꾸로 삽입 => 스택은 반대 방향으로 확장하기 떄문!
+	
+	/* 맨 끝 NULL 값(arg[4]) 제외하고 스택에 저장(arg[0] ~ arg[3]) */
+	for (int i = argc-2; i>=0; i--) { // int i = argc-2; 맨 끝에 문자 제외.
+		int argv_len = strlen(argv[i]);
+		/* 
+		if_->rsp: 현재 user stack에서 현재 위치를 가리키는 스택 포인터.
+		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
+		그 크기만큼 rsp를 내려준다. 그 다음 빈 공간만큼 memcpy를 해준다.
+		 */
+		if_->rsp = if_->rsp - (argv_len + 1);
+		memcpy(if_->rsp, argv[i], argv_len+1);
+		arg_addr[i] = if_->rsp; // arg_addr 배열에 현재 문자열 시작 주소 위치를 저장한다.
+	}
+
+	/* word-align: 8의 배수 맞추기 위해 padding 삽입한다. */
+	while (if_->rsp % 8 != 0) 
+	{
+		if_->rsp--; // 주소값을 1 내리고
+		*(uint8_t *) if_->rsp = 0; //데이터에 0 삽입 => 8바이트 저장
+	}
+
+	/* 이제는 주소값 자체를 삽입! 이때 센티넬 포함해서 넣기. */
+	
+	for (int i = argc; i >=0; i--) 
+	{ // 여기서는 NULL 값 포인터도 같이 넣는다.
+		if_->rsp = if_->rsp - 8; // 8바이트만큼 내리고
+		if (i == argc) { // 가장 위에는 NULL이 아닌 0을 넣어야지
+			memset(if_->rsp, 0, sizeof(char **));
+		} else { // 나머지에는 arg_addr 안에 들어있는 값 가져오기
+			memcpy(if_->rsp, &arg_addr[i], sizeof(char **)); // char 포인터 크기: 8바이트
+		}	
+	}
+	
+	/* fake return address */
+	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
+	memset(if_->rsp, 0, sizeof(void *));
+
+	if_->R.rdi  = argc;
+	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_addr 맨 앞 가리키는 주소값!
 }
 
 
