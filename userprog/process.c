@@ -51,8 +51,6 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
-	// // parsing file_name
-	// token = strtok_r( file_name , " " , &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -170,15 +168,9 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	/*-------------------------- project.2-Parsing -----------------------------*/
     char *file_name_copy[48];
-    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
-    /*-------------------------- project.2-Parsing -----------------------------*/
+    memcpy(file_name_copy, file_name, strlen(file_name) + 1);// strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
+    /*--------------------------// project.2-Parsing -----------------------------*/
 	bool success;
-	// /* --- Project 2: Command_line_parsing ---*/
-	// /* 원본 file name을 copy해오기 */
-	// char file_name_copy[128]; // 스택에 저장
-	// // file_name_copy = palloc_get_page(PAL_USER); // 이렇게는 가능 but 비효율적.
-	// memcpy(file_name_copy, file_name, strlen(file_name)+1); // strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
-	// /* --- Project 2: Command_line_parsing ---*/
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -193,44 +185,39 @@ process_exec (void *f_name) {
 
     /*-------------------------- project.2-Parsing -----------------------------*/
     char *token, *last;
-    int token_count = 0;
-    char *arg_list[64];
-    token = strtok_r(file_name_copy, " ", &last);
-    char *tmp_save = token;
-    arg_list[token_count] = token;
+    char *argv[64];
+    int argc = 0;
+    
+	token = strtok_r(file_name_copy, " ", &last); // file_name_copy에서 가장 먼저 잘라오는 정보는 "파일명"이다. 
+    char *tmp_save = token; // "파일명"을 따로 구석에 쟁여둔다.
+
+    argv[argc] = token; // 처음에, 우리는 while문 직전에 194행을 써주지 않았었다. 그렇게 되면 "파일명"에 대한 내용이 잘려나간 채 while문을 돌게 된다.
+
     while (token != NULL)
     {
         token = strtok_r(NULL, " ", &last);
-        token_count++;
-        arg_list[token_count] = token;
+        ++argc;
+        argv[argc] = token;
     }
+
     /* And then load the binary */
-    success = load(tmp_save, &_if);
-    /* If load failed, quit. */
-    if (!success)
-    {
-        return -1;
-    }
-    argument_stack(arg_list, token_count, &_if);
-    /*-------------------------- project.2-Parsing -----------------------------*/
-
-
-	// /* --- Project 2: Command_line_parsing ---*/
-	// memset(&_if, 0, sizeof _if);
-	// /* --- Project 2: Command_line_parsing ---*/
-	/* And then load the binary */
-	// success = load (file_name, &_if);
+    success = load (tmp_save, &_if); // 쟁여뒀던 파일명 정보를 load()를 호출할 때 intr_frame 구조체 주소와 함께 넘겨준다~
 
 	/* If load failed, quit. */
-	// palloc_free_page (file_name);
-	// if (!success)
-	// 	return -1;
+	palloc_free_page (file_name); // 변수 file_name을 할당했던 자리 free. 내용상 아마도 "If load failed, quit." 주석의 바로 위에 위치해있어야 했던 코드 아닐지...?
+	if (!success)
+		return -1;
+	
+    argument_stack(argv, argc, &_if);
+	/*--------------------------// project.2-Parsing -----------------------------*/
+
+	// FOR DEBUGGING~!
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+    
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
-
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -372,22 +359,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-	// /* --- Project 2: Command_line_parsing ---*/
-	// char *arg_list[128];
-	// char *token, *save_ptr;
-	// int token_count = 0;
- 
-	// token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
-	// //token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
-	// arg_list[token_count] = token; //arg_list[0] = file_name_first
-	
-	// while (token != NULL) {
-	// 	token = strtok_r (NULL, " ", &save_ptr);
-	// 	token_count++;
-	// 	arg_list[token_count] = token;
-	// }
-	// /* --- Project 2: Command_line_parsing ---*/
-
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -473,12 +444,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	// //parsing
-	// /* --- Project 2: Command_line_parsing ---*/
-	// argument_stack(arg_list, token_count, if_);
-	// /* --- Project 2: Command_line_parsing ---*/
-
-	// argument_stack(parse, count, &if_.rsp);
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
@@ -703,8 +668,7 @@ setup_stack (struct intr_frame *if_) {
 }
 #endif /* VM */
 
-
-/* --- Project 2: Command_line_parsing ---*/
+/*-------------------------- project.2 -----------------------------*/
 /* 인자를 stack에 올린다. */
 void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
 
@@ -745,7 +709,6 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 		}	
 	}
 	
-
 	/* fake return address */
 	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
 	memset(if_->rsp, 0, sizeof(void *));
@@ -753,3 +716,4 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 	if_->R.rdi  = argc;
 	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_address 맨 앞 가리키는 주소값!
 }
+/*--------------------------// project.2 -----------------------------*/
