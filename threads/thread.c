@@ -535,15 +535,15 @@ thread_launch (struct thread *th) {
 			"movw %%es, (%%rax)\n"
 			"movw %%ds, 8(%%rax)\n"
 			"addq $32, %%rax\n"
-			"call __next\n"         // read the current rip.
+			"call __next\n"         // read the current rip ( instruction pointer - 명령어 포인터 ).
 			"__next:\n"
 			"pop %%rbx\n"
 			"addq $(out_iret -  __next), %%rbx\n"
 			"movq %%rbx, 0(%%rax)\n" // rip
-			"movw %%cs, 8(%%rax)\n"  // cs
+			"movw %%cs, 8(%%rax)\n"  // cs ( code segment )
 			"pushfq\n"
 			"popq %%rbx\n"
-			"mov %%rbx, 16(%%rax)\n" // eflags
+			"mov %%rbx, 16(%%rax)\n" // eflags ( flag register )
 			"mov %%rsp, 24(%%rax)\n" // rsp
 			"movw %%ss, 32(%%rax)\n"
 			"mov %%rcx, %%rdi\n"
