@@ -168,13 +168,17 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
+	/*-------------------------- project.2-Parsing -----------------------------*/
+    char *file_name_copy[48];
+    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
+    /*-------------------------- project.2-Parsing -----------------------------*/
 	bool success;
-	/* --- Project 2: Command_line_parsing ---*/
-	/* 원본 file name을 copy해오기 */
-	char file_name_copy[128]; // 스택에 저장
-	// file_name_copy = palloc_get_page(PAL_USER); // 이렇게는 가능 but 비효율적.
-	memcpy(file_name_copy, file_name, strlen(file_name)+1); // strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
-	/* --- Project 2: Command_line_parsing ---*/
+	// /* --- Project 2: Command_line_parsing ---*/
+	// /* 원본 file name을 copy해오기 */
+	// char file_name_copy[128]; // 스택에 저장
+	// // file_name_copy = palloc_get_page(PAL_USER); // 이렇게는 가능 but 비효율적.
+	// memcpy(file_name_copy, file_name, strlen(file_name)+1); // strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
+	// /* --- Project 2: Command_line_parsing ---*/
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -187,17 +191,41 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	/* --- Project 2: Command_line_parsing ---*/
-	memset(&_if, 0, sizeof _if);
-	/* --- Project 2: Command_line_parsing ---*/
+    /*-------------------------- project.2-Parsing -----------------------------*/
+    char *token, *last;
+    int token_count = 0;
+    char *arg_list[64];
+    token = strtok_r(file_name_copy, " ", &last);
+    char *tmp_save = token;
+    arg_list[token_count] = token;
+    while (token != NULL)
+    {
+        token = strtok_r(NULL, " ", &last);
+        token_count++;
+        arg_list[token_count] = token;
+    }
+    /* And then load the binary */
+    success = load(tmp_save, &_if);
+    /* If load failed, quit. */
+    if (!success)
+    {
+        return -1;
+    }
+    argument_stack(arg_list, token_count, &_if);
+    /*-------------------------- project.2-Parsing -----------------------------*/
+
+
+	// /* --- Project 2: Command_line_parsing ---*/
+	// memset(&_if, 0, sizeof _if);
+	// /* --- Project 2: Command_line_parsing ---*/
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	// success = load (file_name, &_if);
 
 	/* If load failed, quit. */
 	// palloc_free_page (file_name);
-	if (!success)
-		return -1;
-	hex_dump(_if.rsp, _if.rsp, KERN_BASE - _if.rsp, true);
+	// if (!success)
+	// 	return -1;
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -344,21 +372,21 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-	/* --- Project 2: Command_line_parsing ---*/
-	char *arg_list[128];
-	char *token, *save_ptr;
-	int token_count = 0;
+	// /* --- Project 2: Command_line_parsing ---*/
+	// char *arg_list[128];
+	// char *token, *save_ptr;
+	// int token_count = 0;
  
-	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
-	//token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
-	arg_list[token_count] = token; //arg_list[0] = file_name_first
+	// token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
+	// //token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
+	// arg_list[token_count] = token; //arg_list[0] = file_name_first
 	
-	while (token != NULL) {
-		token = strtok_r (NULL, " ", &save_ptr);
-		token_count++;
-		arg_list[token_count] = token;
-	}
-	/* --- Project 2: Command_line_parsing ---*/
+	// while (token != NULL) {
+	// 	token = strtok_r (NULL, " ", &save_ptr);
+	// 	token_count++;
+	// 	arg_list[token_count] = token;
+	// }
+	// /* --- Project 2: Command_line_parsing ---*/
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -445,10 +473,10 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	//parsing
-	/* --- Project 2: Command_line_parsing ---*/
-	argument_stack(arg_list, token_count, if_);
-	/* --- Project 2: Command_line_parsing ---*/
+	// //parsing
+	// /* --- Project 2: Command_line_parsing ---*/
+	// argument_stack(arg_list, token_count, if_);
+	// /* --- Project 2: Command_line_parsing ---*/
 
 	// argument_stack(parse, count, &if_.rsp);
 	/* TODO: Your code goes here.
