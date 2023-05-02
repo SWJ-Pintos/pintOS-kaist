@@ -39,8 +39,65 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f ) {
 	// TODO: Your implementation goes here.
+	int number = f->R.rax;
+	switch(number) {
+		case SYS_HALT:
+			halt();
+		case SYS_EXIT:
+			exit(f->R.rdi);
+		case SYS_EXEC:
+			exec(f->R.rdi);
+		case SYS_WAIT:
+			wait();
+		case SYS_CREATE:
+			create();
+		case SYS_REMOVE:
+			remove();
+		case SYS_OPEN:
+			open();
+		case SYS_FILESIZE:
+			filesize();
+		case SYS_READ:
+			read();
+		case SYS_WRITE:
+			write();
+		case SYS_SEEK:
+			seek();
+		case SYS_TELL:
+			tell();
+		case SYS_CLOSE:
+			close();
+	}
 	printf ("system call!\n");
 	thread_exit ();
+}
+void
+check_address (void *addr) {
+	if (is_kernel_vaddr(addr)) {
+		exit(-1);
+	}
+}
+
+void halt(void) {
+	power_off();
+}
+
+void exit(int status) {
+	thread_exit();
+	return status;
+}
+
+int 
+exec(const char *cmd_line) {
+	int pid = process_create_initd(cmd_line);
+
+	if (load_status) {
+		블라블라
+	}
+	else {
+		exit(-1);
+	}
+	return pid;
 }

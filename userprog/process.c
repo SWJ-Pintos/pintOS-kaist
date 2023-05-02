@@ -56,6 +56,9 @@ process_create_initd (const char *file_name) {
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
+	// project 2 : user program syscall(exec)	
+	sema_down();
+
 	return tid;
 }
 
@@ -169,10 +172,6 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
-	// /*-------------------------- project.2-Parsing -----------------------------*/
-    // char *file_name_copy[48];
-    // memcpy(file_name_copy, file_name, strlen(file_name) + 1);// strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
-    /*--------------------------// project.2-Parsing -----------------------------*/
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -194,6 +193,8 @@ process_exec (void *f_name) {
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
+	// project 2 : user program syscall(exec)	
+	sema_up();
 	// FOR DEBUGGING~!
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
     
@@ -229,6 +230,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	msg("%s: exit(%d)", curr->name, curr->status);n  
 
 	process_cleanup ();
 }
@@ -455,53 +457,6 @@ done:
 	return success;
 }
 
-// /* argument_stack: 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다. */
-// void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
-
-// 	/* insert arguments' address */
-// 	char *arg_addr[128];
-
-// 	// 거꾸로 삽입 => 스택은 반대 방향으로 확장하기 떄문!
-	
-// 	/* 맨 끝 NULL 값(arg[4]) 제외하고 스택에 저장(arg[0] ~ arg[3]) */
-// 	for (int i = argc-2; i>=0; i--) { // int i = argc-2; 맨 끝에 문자 제외.
-// 		int argv_len = strlen(argv[i]);
-// 		/* 
-// 		if_->rsp: 현재 user stack에서 현재 위치를 가리키는 스택 포인터.
-// 		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
-// 		그 크기만큼 rsp를 내려준다. 그 다음 빈 공간만큼 memcpy를 해준다.
-// 		 */
-// 		if_->rsp = if_->rsp - (argv_len + 1);
-// 		memcpy(if_->rsp, argv[i], argv_len+1);
-// 		arg_addr[i] = if_->rsp; // arg_addr 배열에 현재 문자열 시작 주소 위치를 저장한다.
-// 	}
-
-// 	/* word-align: 8의 배수 맞추기 위해 padding 삽입한다. */
-// 	while (if_->rsp % 8 != 0) 
-// 	{
-// 		if_->rsp--; // 주소값을 1 내리고
-// 		*(uint8_t *) if_->rsp = 0; //데이터에 0 삽입 => 8바이트 저장
-// 	}
-
-// 	/* 이제는 주소값 자체를 삽입! 이때 센티넬 포함해서 넣기. */
-	
-// 	for (int i = argc; i >=0; i--) 
-// 	{ // 여기서는 NULL 값 포인터도 같이 넣는다.
-// 		if_->rsp = if_->rsp - 8; // 8바이트만큼 내리고
-// 		if (i == argc) { // 가장 위에는 NULL이 아닌 0을 넣어야지
-// 			memset(if_->rsp, 0, sizeof(char **));
-// 		} else { // 나머지에는 arg_addr 안에 들어있는 값 가져오기
-// 			memcpy(if_->rsp, &arg_addr[i], sizeof(char **)); // char 포인터 크기: 8바이트
-// 		}	
-// 	}
-	
-// 	/* fake return address */
-// 	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
-// 	memset(if_->rsp, 0, sizeof(void *));
-
-// 	if_->R.rdi  = argc;
-// 	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_addr 맨 앞 가리키는 주소값!
-// }
 
 
 /* Checks whether PHDR describes a valid, loadable segment in

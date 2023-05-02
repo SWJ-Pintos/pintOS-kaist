@@ -102,6 +102,10 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 	struct list_elem donor_elem;
 
+
+	struct thread* parent_process;
+	struct list child_list;
+	sturct list_elem child_list_elem;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
