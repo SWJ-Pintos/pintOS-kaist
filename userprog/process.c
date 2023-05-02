@@ -26,6 +26,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+void argument_stack(char **argv, int argc, struct intr_frame *if_); // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
 
 /* General process initializer for initd and other process. */
 static void
@@ -38,17 +39,24 @@ process_init (void) {
  * before process_create_initd() returns. Returns the initd's
  * thread id, or TID_ERROR if the thread cannot be created.
  * Notice that THIS SHOULD BE CALLED ONCE. */
+// process_execute (Kaist-pintOS 자료)
 tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
-
+	char *token, *save_ptr;
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	char *save_ptr;
+	char *token = strtok_r(file_name, " ", &save_ptr); // token에도 담기고, strtok_r()에 의해 file_name도 가공된다.
+	// 변수 fn_copy : 인자로 받았던 원본 그대로. 
+	// 변수 file_name : 파일 이름만 파싱한 것.
+	// strtok_r()는 파라미터 type(const가 빠짐)을 보면 알 수 있듯이 원본 문자열의 값이 변경된다!
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -116,6 +124,9 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
+/* 부모의 실행 컨텍스트를 복사하는 스레드 함수. 
+	힌트) parent->tf는 프로세스의 유저랜드 컨텍스트를 보유하지 않습니다.
+	즉, process_fork의 두 번째 인수를 이 함수에 전달해야 합니다. */
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
@@ -160,9 +171,14 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+// start_process() (in Kaist-pintOS 자료)
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
+	/*-------------------------- project.2-Parsing -----------------------------*/
+    char *file_name_copy[48];
+    memcpy(file_name_copy, file_name, strlen(file_name) + 1);// strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
+    /*--------------------------// project.2-Parsing -----------------------------*/
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -176,19 +192,41 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+    /*-------------------------- project.2-Parsing -----------------------------*/
+    char *token, *last;
+    char *argv[64];
+    int argc = 0;
+    
+	token = strtok_r(file_name_copy, " ", &last); // file_name_copy에서 가장 먼저 잘라오는 정보는 "파일명"이다. 
+    char *tmp_save = token; // "파일명"을 따로 구석에 쟁여둔다.
+
+    argv[argc] = token; // 처음에, 우리는 while문 직전에 194행을 써주지 않았었다. 그렇게 되면 "파일명"에 대한 내용이 잘려나간 채 while문을 돌게 된다.
+
+    while (token != NULL)
+    {
+        token = strtok_r(NULL, " ", &last);
+        ++argc;
+        argv[argc] = token;
+    }
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
+	palloc_free_page (file_name); // 변수 file_name을 할당했던 자리 free. 내용상 아마도 "If load failed, quit." 주석의 바로 위에 위치해있어야 했던 코드 아닐지...?
 	if (!success)
 		return -1;
+	
+    argument_stack(argv, argc, &_if);
+	/*--------------------------// project.2-Parsing -----------------------------*/
 
+	// FOR DEBUGGING~!
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+    
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
-
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -204,6 +242,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while (1){}
 	return -1;
 }
 
@@ -335,6 +374,16 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
+	char *token, *save_ptr;
+	char *argv[128]; // 빈 배열변수 argv를 선언한다.
+	int argc = 0;
+	
+	token = strtok_r(file_name, " ", &save_ptr); // 우리는 file_name이라는 원본을 파일명에 대한 정보만 담게끔 변경시키고, 나머지 인자 내용은 배열 argv에 담을 것이다. 앞서 말했듯 strtok_r()는 원본 문자열의 값이 변경되는 점을 효율적으로 활용하는 것이다.
+	while (token != NULL) {
+		token = strtok_r(NULL, " ", &save_ptr);
+		argv[argc++] = token;
+	}
+
 	/* Open executable file. */
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -416,6 +465,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	argument_stack(argv, argc, if_);	// 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다.
 
 	success = true;
 
@@ -423,6 +473,54 @@ done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
 	return success;
+}
+
+/* argument_stack: 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다. */
+void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
+
+	/* insert arguments' address */
+	char *arg_addr[128];
+
+	// 거꾸로 삽입 => 스택은 반대 방향으로 확장하기 떄문!
+	
+	/* 맨 끝 NULL 값(arg[4]) 제외하고 스택에 저장(arg[0] ~ arg[3]) */
+	for (int i = argc-2; i>=0; i--) { // int i = argc-2; 맨 끝에 문자 제외.
+		int argv_len = strlen(argv[i]);
+		/* 
+		if_->rsp: 현재 user stack에서 현재 위치를 가리키는 스택 포인터.
+		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
+		그 크기만큼 rsp를 내려준다. 그 다음 빈 공간만큼 memcpy를 해준다.
+		 */
+		if_->rsp = if_->rsp - (argv_len + 1);
+		memcpy(if_->rsp, argv[i], argv_len+1);
+		arg_addr[i] = if_->rsp; // arg_addr 배열에 현재 문자열 시작 주소 위치를 저장한다.
+	}
+
+	/* word-align: 8의 배수 맞추기 위해 padding 삽입한다. */
+	while (if_->rsp % 8 != 0) 
+	{
+		if_->rsp--; // 주소값을 1 내리고
+		*(uint8_t *) if_->rsp = 0; //데이터에 0 삽입 => 8바이트 저장
+	}
+
+	/* 이제는 주소값 자체를 삽입! 이때 센티넬 포함해서 넣기. */
+	
+	for (int i = argc; i >=0; i--) 
+	{ // 여기서는 NULL 값 포인터도 같이 넣는다.
+		if_->rsp = if_->rsp - 8; // 8바이트만큼 내리고
+		if (i == argc) { // 가장 위에는 NULL이 아닌 0을 넣어야지
+			memset(if_->rsp, 0, sizeof(char **));
+		} else { // 나머지에는 arg_addr 안에 들어있는 값 가져오기
+			memcpy(if_->rsp, &arg_addr[i], sizeof(char **)); // char 포인터 크기: 8바이트
+		}	
+	}
+	
+	/* fake return address */
+	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
+	memset(if_->rsp, 0, sizeof(void *));
+
+	if_->R.rdi  = argc;
+	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_addr 맨 앞 가리키는 주소값!
 }
 
 
@@ -637,3 +735,53 @@ setup_stack (struct intr_frame *if_) {
 	return success;
 }
 #endif /* VM */
+
+/*-------------------------- project.2 -----------------------------*/
+/* 인자를 stack에 올린다. */
+void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
+
+	/* insert arguments' address */
+	char *arg_address[128];
+
+	// 거꾸로 삽입 => 스택은 반대 방향으로 확장하기 떄문!
+	
+	/* 맨 끝 NULL 값(arg[4]) 제외하고 스택에 저장(arg[0] ~ arg[3]) */
+	for (int i = argc-1; i>=0; i--) { 
+		int argv_len = strlen(argv[i]);
+		/* 
+		if_->rsp: 현재 user stack에서 현재 위치를 가리키는 스택 포인터.
+		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
+		그 크기만큼 rsp를 내려준다. 그 다음 빈 공간만큼 memcpy를 해준다.
+		 */
+		if_->rsp = if_->rsp - (argv_len + 1);
+		memcpy(if_->rsp, argv[i], argv_len+1);
+		arg_address[i] = if_->rsp; // arg_address 배열에 현재 문자열 시작 주소 위치를 저장한다.
+	}
+
+	/* word-align: 8의 배수 맞추기 위해 padding 삽입*/
+	while (if_->rsp % 8 != 0) 
+	{
+		if_->rsp--; // 주소값을 1 내리고
+		*(uint8_t *) if_->rsp = 0; //데이터에 0 삽입 => 8바이트 저장
+	}
+
+	/* 이제는 주소값 자체를 삽입! 이때 센티넬 포함해서 넣기*/
+	
+	for (int i = argc; i >=0; i--) 
+	{ // 여기서는 NULL 값 포인터도 같이 넣는다.
+		if_->rsp = if_->rsp - 8; // 8바이트만큼 내리고
+		if (i == argc) { // 가장 위에는 NULL이 아닌 0을 넣어야지
+			memset(if_->rsp, 0, sizeof(char **));
+		} else { // 나머지에는 arg_address 안에 들어있는 값 가져오기
+			memcpy(if_->rsp, &arg_address[i], sizeof(char **)); // char 포인터 크기: 8바이트
+		}	
+	}
+	
+	/* fake return address */
+	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
+	memset(if_->rsp, 0, sizeof(void *));
+
+	if_->R.rdi  = argc;
+	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_address 맨 앞 가리키는 주소값!
+}
+/*--------------------------// project.2 -----------------------------*/
