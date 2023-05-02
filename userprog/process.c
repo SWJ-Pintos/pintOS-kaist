@@ -168,10 +168,10 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
-	/*-------------------------- project.2-Parsing -----------------------------*/
-    char *file_name_copy[48];
-    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
-    /*-------------------------- project.2-Parsing -----------------------------*/
+	// /*-------------------------- project.2-Parsing -----------------------------*/
+    // char *file_name_copy[48];
+    // memcpy(file_name_copy, file_name, strlen(file_name) + 1);
+    // /*-------------------------- project.2-Parsing -----------------------------*/
 	bool success;
 	// /* --- Project 2: Command_line_parsing ---*/
 	// /* 원본 file name을 copy해오기 */
@@ -190,28 +190,30 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	// memset(&_if, 0, sizeof _if);
+	success = load (file_name, &_if);
 
-    /*-------------------------- project.2-Parsing -----------------------------*/
-    char *token, *last;
-    int token_count = 0;
-    char *arg_list[64];
-    token = strtok_r(file_name_copy, " ", &last);
-    char *tmp_save = token;
-    arg_list[token_count] = token;
-    while (token != NULL)
-    {
-        token = strtok_r(NULL, " ", &last);
-        token_count++;
-        arg_list[token_count] = token;
-    }
+    // /*-------------------------- project.2-Parsing -----------------------------*/
+    // char *token, *last;
+    // int token_count = 0;
+    // char *arg_list[64];
+    // token = strtok_r(file_name_copy, " ", &last);
+    // char *tmp_save = token;
+    // arg_list[token_count] = token;
+    // while (token != NULL)
+    // {
+    //     token = strtok_r(NULL, " ", &last);
+    //     token_count++;
+    //     arg_list[token_count] = token;
+    // }
     /* And then load the binary */
-    success = load(tmp_save, &_if);
+    // success = load(tmp_save, &_if);
     /* If load failed, quit. */
     if (!success)
     {
         return -1;
     }
-    argument_stack(arg_list, token_count, &_if);
+    // argument_stack(arg_list, token_count, &_if);
     /*-------------------------- project.2-Parsing -----------------------------*/
 
 
@@ -372,21 +374,21 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-	// /* --- Project 2: Command_line_parsing ---*/
-	// char *arg_list[128];
-	// char *token, *save_ptr;
-	// int token_count = 0;
+	/* --- Project 2: Command_line_parsing ---*/
+	char *arg_list[128];
+	char *token, *save_ptr;
+	int token_count = 0;
  
-	// token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
-	// //token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
-	// arg_list[token_count] = token; //arg_list[0] = file_name_first
+	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
+	//token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
+	arg_list[token_count] = token; //arg_list[0] = file_name_first
 	
-	// while (token != NULL) {
-	// 	token = strtok_r (NULL, " ", &save_ptr);
-	// 	token_count++;
-	// 	arg_list[token_count] = token;
-	// }
-	// /* --- Project 2: Command_line_parsing ---*/
+	while (token != NULL) {
+		token = strtok_r (NULL, " ", &save_ptr);
+		token_count++;
+		arg_list[token_count] = token;
+	}
+	/* --- Project 2: Command_line_parsing ---*/
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -475,7 +477,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	// //parsing
 	// /* --- Project 2: Command_line_parsing ---*/
-	// argument_stack(arg_list, token_count, if_);
+	argument_stack(arg_list, token_count, if_);
 	// /* --- Project 2: Command_line_parsing ---*/
 
 	// argument_stack(parse, count, &if_.rsp);
