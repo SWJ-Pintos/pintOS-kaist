@@ -201,12 +201,19 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	t->parent_process = thread_current();
+	/* load 성공 여부 
+		성공 1, 실패 0
+	*/
+	t->success_load = 0;
+	t->exit_status = 0;
+
+	t->fdt = (struct file **)palloc_get_page(PAL_ZERO);
+	t->next_fd = 2;
+
+
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
-
-	// if (t->priority > thread_current()->priority) {
-	// 	thread_yield();
-	// }
 
 	return tid;
 }
@@ -441,6 +448,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->wait_on_lock = NULL;
 	t->magic = THREAD_MAGIC;
 	list_init (&t->donor_list);
+	list_init (&t->child_list);
+	// t->child_success_create = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
