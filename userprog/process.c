@@ -27,6 +27,8 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 void argument_stack(char **argv, int argc, struct intr_frame *if_); // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
+struct thread *get_child_process ( int pid );
+void remove_child_process (struct thread *cp);
 
 /* General process initializer for initd and other process. */
 static void
@@ -218,7 +220,8 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// pintos 가 바로 꺼지지 않도록 일단은, 무한루프 ( process_wait 를 제대로 구현하기 전까지 ! )
-	while (1){}
+	for (int i=0; i <10000000; i++) {}
+	// while (1){}
 	return -1;
 }
 
@@ -230,7 +233,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	msg("%s: exit(%d)", curr->name, curr->status);n  
+	msg("%s: exit(%d)", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
@@ -720,3 +723,44 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_address 맨 앞 가리키는 주소값!
 }
 /*--------------------------// project.2 -----------------------------*/
+
+struct thread *get_child_process ( int pid ) {
+	struct thread *th = thread_current();
+	struct list_elem *child;
+
+	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
+		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		if (child_th->tid == pid) {
+			return child_th;
+		} 
+	}
+	return NULL;
+}
+
+
+void remove_child_process (struct thread *cp) {
+	struct thread *th = thread_current();
+	struct list_elem *child;
+
+	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
+		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		if (child_th == cp) {
+			list_remove(child);
+			return;
+		} 
+	}
+	return;
+}
+
+int process_add_file (struct file *f) {
+	struct thread *th = thread_current();
+	th->fdt = f;
+	th->fdt+1;
+	return fd;
+}
+struct file *process_get_file (int fd) {
+
+}
+void process_close_file (int fd) {
+	
+}

@@ -42,36 +42,54 @@ void
 syscall_handler (struct intr_frame *f ) {
 	// TODO: Your implementation goes here.
 	int number = f->R.rax;
+	uintptr_t stack_pointer = f->rsp;
+	check_address(stack_pointer);
 	switch(number) {
 		case SYS_HALT:
 			halt();
+			break;
 		case SYS_EXIT:
 			exit(f->R.rdi);
+			break;
 		case SYS_EXEC:
 			exec(f->R.rdi);
+			break;
 		case SYS_WAIT:
 			wait();
+			break;
 		case SYS_CREATE:
-			create();
+			create(f->R.rdi, f->R.rsi);
+			break;
 		case SYS_REMOVE:
-			remove();
+			remove(f->R.rdi);
+			break;
 		case SYS_OPEN:
 			open();
+			break;
 		case SYS_FILESIZE:
 			filesize();
+			break;
 		case SYS_READ:
 			read();
+			break;
 		case SYS_WRITE:
 			write();
+			break;
 		case SYS_SEEK:
 			seek();
+			break;
 		case SYS_TELL:
 			tell();
+			break;
 		case SYS_CLOSE:
 			close();
+			break;
+		default:
+			printf ("system call!\n");
+			thread_exit ();		
 	}
-	printf ("system call!\n");
-	thread_exit ();
+	// printf ("system call!\n");
+	// thread_exit ();
 }
 void
 check_address (void *addr) {
@@ -85,19 +103,33 @@ void halt(void) {
 }
 
 void exit(int status) {
+	struct thread *th = thread_current();
+	th->exit_status = status;
 	thread_exit();
 	return status;
 }
+// exec 보류
+// int exec(const char *cmd_line) {
+	// int pid = process_create_initd(cmd_line);
+// 	if (pid) {
+// 		return 0;
+// 	}
+// 	else {
+		
+// 		exit(-1);
+// 	}
 
-int 
-exec(const char *cmd_line) {
-	int pid = process_create_initd(cmd_line);
-
-	if (load_status) {
-		블라블라
-	}
-	else {
+// }
+bool create(const char *file , unsigned initial_size) {	
+	if (file == NULL) {
 		exit(-1);
 	}
-	return pid;
+	return filesys_create(file, initial_size);	
+}
+
+bool remove(const char *file) {	
+	if (file == NULL) {
+		exit(-1);
+	}
+	return filesys_remove(file);	
 }
