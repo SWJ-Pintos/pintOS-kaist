@@ -85,6 +85,12 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+
+/* Definition of struct file_descriptor */
+struct file_descriptor {
+  struct file *file;     /* Pointer to file opened by this file descriptor */
+  int fd;                /* File descriptor number */
+};
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -101,6 +107,20 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list_elem donor_elem;
+	
+	struct thread* parent_process;
+	struct list_elem child_list_elem;
+	struct list child_list;
+
+	bool success_load;
+	int exit_status;
+	struct semaphore *exit_sema;
+	struct semaphore *load_sema;
+	/* exit 호출 시 종료 status */
+
+	// int child_success_create; 
+	struct file_descriptor file_descriptor_table[64]; /* Table of file descriptors */
+  	int next_fd; /* Next available file descriptor number */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

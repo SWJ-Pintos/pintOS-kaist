@@ -27,6 +27,8 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 void argument_stack(char **argv, int argc, struct intr_frame *if_); // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
+struct thread *get_child_process ( int pid );
+void remove_child_process (struct thread *cp);
 
 /* General process initializer for initd and other process. */
 static void
@@ -44,20 +46,21 @@ tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
-	char *token, *save_ptr;
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
-	// // parsing file_name
-	// token = strtok_r( file_name , " " , &save_ptr);
+
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
+	// project 2 : user program syscall(exec)	
+	sema_down();
+
 	return tid;
 }
 
@@ -120,6 +123,9 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
+/* 부모의 실행 컨텍스트를 복사하는 스레드 함수. 
+	힌트) parent->tf는 프로세스의 유저랜드 컨텍스트를 보유하지 않습니다.
+	즉, process_fork의 두 번째 인수를 이 함수에 전달해야 합니다. */
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
@@ -168,17 +174,7 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
-	/*-------------------------- project.2-Parsing -----------------------------*/
-    char *file_name_copy[48];
-    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
-    /*-------------------------- project.2-Parsing -----------------------------*/
 	bool success;
-	// /* --- Project 2: Command_line_parsing ---*/
-	// /* 원본 file name을 copy해오기 */
-	// char file_name_copy[128]; // 스택에 저장
-	// // file_name_copy = palloc_get_page(PAL_USER); // 이렇게는 가능 but 비효율적.
-	// memcpy(file_name_copy, file_name, strlen(file_name)+1); // strlen에 +1? => 원래 문자열에는 \n이 들어가는데 strlen에서는 \n 앞까지만 읽고 끝내기 때문. 전체를 들고오기 위해 +1
-	// /* --- Project 2: Command_line_parsing ---*/
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -191,46 +187,23 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-    /*-------------------------- project.2-Parsing -----------------------------*/
-    char *token, *last;
-    int token_count = 0;
-    char *arg_list[64];
-    token = strtok_r(file_name_copy, " ", &last);
-    char *tmp_save = token;
-    arg_list[token_count] = token;
-    while (token != NULL)
-    {
-        token = strtok_r(NULL, " ", &last);
-        token_count++;
-        arg_list[token_count] = token;
-    }
-    /* And then load the binary */
-    success = load(tmp_save, &_if);
-    /* If load failed, quit. */
-    if (!success)
-    {
-        return -1;
-    }
-    argument_stack(arg_list, token_count, &_if);
-    /*-------------------------- project.2-Parsing -----------------------------*/
 
-
-	// /* --- Project 2: Command_line_parsing ---*/
-	// memset(&_if, 0, sizeof _if);
-	// /* --- Project 2: Command_line_parsing ---*/
 	/* And then load the binary */
-	// success = load (file_name, &_if);
+	success = load (file_name, &_if);
 
+	palloc_free_page (file_name); // 변수 file_name을 할당했던 자리 free. file_name은 프로그램 파일을 받기 위해 만든 임시 변수이다. load가 끝나면 메모리를 반환한다.
 	/* If load failed, quit. */
-	// palloc_free_page (file_name);
-	// if (!success)
-	// 	return -1;
+	if (!success)
+		return -1;
+	// project 2 : user program syscall(exec)	
+	sema_up();
+	// FOR DEBUGGING~!
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+    
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
-
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -246,7 +219,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while (1){}
+	// pintos 가 바로 꺼지지 않도록 일단은, 무한루프 ( process_wait 를 제대로 구현하기 전까지 ! )
+	for (int i=0; i <10000000; i++) {}
+	// while (1){}
 	return -1;
 }
 
@@ -258,6 +233,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	msg("%s: exit(%d)", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
@@ -372,21 +348,20 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-	// /* --- Project 2: Command_line_parsing ---*/
-	// char *arg_list[128];
-	// char *token, *save_ptr;
-	// int token_count = 0;
- 
-	// token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름
-	// //token = strtok_r(file_name_total, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
-	// arg_list[token_count] = token; //arg_list[0] = file_name_first
-	
-	// while (token != NULL) {
-	// 	token = strtok_r (NULL, " ", &save_ptr);
-	// 	token_count++;
-	// 	arg_list[token_count] = token;
-	// }
-	// /* --- Project 2: Command_line_parsing ---*/
+	/* --- Project 2: Command_line_parsing ---*/
+	char *arg_list[128];
+	char *token, *save_ptr;
+	int token_count = 0;
+
+	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
+	arg_list[token_count] = token; //arg_list[0] = file_name_first
+
+	while (token != NULL) {
+		token = strtok_r (NULL, " ", &save_ptr);
+		token_count++;
+		arg_list[token_count] = token;
+	}
+	/* --- Project 2: Command_line_parsing ---*/
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -473,14 +448,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	// //parsing
-	// /* --- Project 2: Command_line_parsing ---*/
-	// argument_stack(arg_list, token_count, if_);
-	// /* --- Project 2: Command_line_parsing ---*/
-
-	// argument_stack(parse, count, &if_.rsp);
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	argument_stack(arg_list, token_count, if_);	// 함수 호출 규약에 따라 유저 스택에 프로그램 이름과 인자들을 저장한다.
 
 	success = true;
 
@@ -489,6 +459,7 @@ done:
 	file_close (file);
 	return success;
 }
+
 
 
 /* Checks whether PHDR describes a valid, loadable segment in
@@ -703,8 +674,7 @@ setup_stack (struct intr_frame *if_) {
 }
 #endif /* VM */
 
-
-/* --- Project 2: Command_line_parsing ---*/
+/*-------------------------- project.2 -----------------------------*/
 /* 인자를 stack에 올린다. */
 void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
 
@@ -718,7 +688,7 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 		int argv_len = strlen(argv[i]);
 		/* 
 		if_->rsp: 현재 user stack에서 현재 위치를 가리키는 스택 포인터.
-		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
+		각 인자에서 인자 크기(argv_len)를 읽고 (이때 각 인자에 sentinel(\n)이 포함되어 있으니 +1 - strlen에서는 sentinel 빼고 읽음)
 		그 크기만큼 rsp를 내려준다. 그 다음 빈 공간만큼 memcpy를 해준다.
 		 */
 		if_->rsp = if_->rsp - (argv_len + 1);
@@ -733,7 +703,7 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 		*(uint8_t *) if_->rsp = 0; //데이터에 0 삽입 => 8바이트 저장
 	}
 
-	/* 이제는 주소값 자체를 삽입! 이때 센티넬 포함해서 넣기*/
+	/* 이제는 주소값 자체를 삽입! 이때 센티넬(개행) 포함해서 넣기*/
 	
 	for (int i = argc; i >=0; i--) 
 	{ // 여기서는 NULL 값 포인터도 같이 넣는다.
@@ -745,11 +715,52 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_) { // if_는 �
 		}	
 	}
 	
-
 	/* fake return address */
 	if_->rsp = if_->rsp - 8; // void 포인터도 8바이트 크기
 	memset(if_->rsp, 0, sizeof(void *));
 
 	if_->R.rdi  = argc;
 	if_->R.rsi = if_->rsp + 8; // fake_address 바로 위: arg_address 맨 앞 가리키는 주소값!
+}
+/*--------------------------// project.2 -----------------------------*/
+
+struct thread *get_child_process ( int pid ) {
+	struct thread *th = thread_current();
+	struct list_elem *child;
+
+	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
+		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		if (child_th->tid == pid) {
+			return child_th;
+		} 
+	}
+	return NULL;
+}
+
+
+void remove_child_process (struct thread *cp) {
+	struct thread *th = thread_current();
+	struct list_elem *child;
+
+	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
+		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		if (child_th == cp) {
+			list_remove(child);
+			return;
+		} 
+	}
+	return;
+}
+
+int process_add_file (struct file *f) {
+	struct thread *th = thread_current();
+	th->fdt = f;
+	th->fdt+1;
+	return fd;
+}
+struct file *process_get_file (int fd) {
+
+}
+void process_close_file (int fd) {
+	
 }
