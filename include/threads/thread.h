@@ -109,12 +109,12 @@ struct thread {
 	struct list child_list;
 
 	bool success_load;
-	int exit_status;
 	struct semaphore *exit_sema;
 	struct semaphore *load_sema;
 	/* exit 호출 시 종료 status */
 	// int child_success_create;
 
+	int exit_status;
 	//File_Descriptor_Table(FDT) 
 	struct file **fdt;
   	int next_fd;
