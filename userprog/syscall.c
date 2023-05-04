@@ -186,7 +186,8 @@ read (int fd, void *buffer, unsigned size) {
 		//return bytes_read;
 		file_read(read_file, buffer, size);
 	}
-	lock_release(&filesys_lock); 
+	lock_release(&filesys_lock);
+	
 }
 
 int
