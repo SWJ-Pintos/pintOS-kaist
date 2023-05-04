@@ -178,14 +178,13 @@ thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
 	tid_t tid;
-
+	char *tok_name,* save_ptr;
 	ASSERT (function != NULL);
 
 	/* 스레드를 할당합니다. */
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
-
 	/* 스레드를 초기화합니다. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();

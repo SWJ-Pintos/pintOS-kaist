@@ -17,6 +17,7 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 bool create(char *file , unsigned initial_size);
 bool remove(char *file);
+unsigned tell (int fd);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -62,17 +63,17 @@ syscall_handler (struct intr_frame *f ) {
 		case SYS_EXIT:
 			exit(f->R.rdi);
 			break;
-		// case SYS_EXEC:
-		// 	exec(f->R.rdi);
-		// 	break;
-		// case SYS_WAIT:
-		// 	wait();
-		// 	break;
+		case SYS_EXEC:
+			// exec(f->R.rdi);
+			break;
+		case SYS_WAIT:
+			// wait();
+			break;
 		case SYS_CREATE:
-			create((char*)f->R.rdi, f->R.rsi);
+			create(f->R.rdi, f->R.rsi);
 			break;
 		case SYS_REMOVE:
-			remove((char*)f->R.rdi);
+			remove(f->R.rdi);
 			break;
 		case SYS_OPEN:
 			open(f->R.rdi);
@@ -89,14 +90,13 @@ syscall_handler (struct intr_frame *f ) {
 		case SYS_SEEK:
 			seek(f->R.rdi, f->R.rsi);
 			break;
-		// case SYS_TELL:
-		// 	tell(f->R.rdi);
-		// 	break;
+		case SYS_TELL:
+			tell(f->R.rdi);
+			break;
 		case SYS_CLOSE:
 			close(f->R.rdi);
 			break;
 		default:
-			printf ("system call!\n");
 			thread_exit ();		
 	}
 	// printf ("system call!\n");
@@ -118,6 +118,8 @@ void
 exit(int status) {
 	struct thread *th = thread_current();
 	th->exit_status = status;
+	printf("%s: exit(%d)\n", th->name, th->exit_status);
+
 	thread_exit();
 	return status;
 }
@@ -207,11 +209,11 @@ seek (int fd, unsigned position) {
 	file_seek(seek_file, position);
 }
 
-// unsigned
-// tell (int fd) {
-// 	struct file *tell_file = process_get_file(fd);
-// 	return file_tell(tell_file);
-// }
+unsigned
+tell (int fd) {
+	struct file *tell_file = process_get_file(fd);
+	return file_tell(tell_file);
+}
 
 void
 close (int fd) {
