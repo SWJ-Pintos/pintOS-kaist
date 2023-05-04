@@ -5,6 +5,7 @@
         "cstdlib": "c",
         "*.inc": "c",
         "vm.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "intrinsic.h": "c"
     }
 }

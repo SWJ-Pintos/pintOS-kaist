@@ -44,8 +44,9 @@ process_init (void) {
 // process_execute (Kaist-pintOS 자료)
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
+	char *fn_copy, *save_ptr;
 	tid_t tid;
+	char *token;
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
@@ -53,13 +54,15 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
+
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (token, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
-	// project 2 : user program syscall(exec)	
-	sema_down();
+	// // project 2 : user program syscall(exec)	
+	// sema_down();
 
 	return tid;
 }
@@ -186,6 +189,8 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	// memset(&_if, 0, sizeof _if);
+	// success = load (file_name, &_if);
 
 
 	/* And then load the binary */
@@ -195,10 +200,10 @@ process_exec (void *f_name) {
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
-	// project 2 : user program syscall(exec)	
-	sema_up();
+	// // project 2 : user program syscall(exec)	
+	// sema_up();
 	// FOR DEBUGGING~!
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
     
 	/* Start switched process. */
 	do_iret (&_if);
@@ -233,7 +238,6 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	msg("%s: exit(%d)", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
@@ -754,13 +758,23 @@ void remove_child_process (struct thread *cp) {
 
 int process_add_file (struct file *f) {
 	struct thread *th = thread_current();
-	th->fdt = f;
-	th->fdt+1;
-	return fd;
+	*((th->fdt)+(th->next_fd)) = f;
+	th->next_fd = th->next_fd+1;
+	return th->next_fd-1;
 }
 struct file *process_get_file (int fd) {
-
+	struct thread *th = thread_current();
+	struct file *get_file = *(th->fdt+fd);
+	if (get_file != NULL) {
+		return get_file;
+	}
+	else {
+		return NULL;
+	}
 }
 void process_close_file (int fd) {
-	
+	struct thread *th = thread_current();
+	struct file *close_file = *(th->fdt+fd);
+	close(close_file);
+	*(th->fdt+fd) = NULL;	
 }

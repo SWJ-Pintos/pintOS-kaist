@@ -178,14 +178,13 @@ thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
 	tid_t tid;
-
+	char *tok_name,* save_ptr;
 	ASSERT (function != NULL);
 
 	/* 스레드를 할당합니다. */
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
-
 	/* 스레드를 초기화합니다. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
@@ -208,28 +207,12 @@ thread_create (const char *name, int priority,
 	t->success_load = 0;
 	t->exit_status = 0;
 
+	t->fdt = (struct file **)palloc_get_page(PAL_ZERO);
 	t->next_fd = 2;
-	t->file_descriptor_table[0].file = NULL;
-	t->file_descriptor_table[0].fd = 0;
-
-	t->file_descriptor_table[1].file = NULL;
-	t->file_descriptor_table[1].fd = 1;
-	
-	for (int i=2; i < 64; i++) {
-		t->file_descriptor_table[i] = (struct file_descriptor )malloc(sizeof(struct file_descriptor));
-
-    	t->file_descriptor_table[i].file = NULL;
-    	t->file_descriptor_table[i].fd = -1;
-  	}
-	
 
 
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
-
-	// if (t->priority > thread_current()->priority) {
-	// 	thread_yield();
-	// }
 
 	return tid;
 }
