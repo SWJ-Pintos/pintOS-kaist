@@ -11,6 +11,8 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "userprog/process.h"
+#include "console.h"
+
 struct lock filesys_lock;
 
 void syscall_entry (void);
@@ -206,14 +208,15 @@ int
 write (int fd, const void *buffer, unsigned size) {
 	lock_acquire(&filesys_lock);
 	struct file *write_file = process_get_file(fd);
+
 	if (fd == 1) {
 		putbuf(buffer, size);
+		lock_release(&filesys_lock);
+		return sizeof((char *)buffer);
 	}
-	else {
 		//return bytes_written;
-		file_write(write_file, buffer, size);
-	}
 	lock_release(&filesys_lock);
+	return file_write(write_file, buffer, size);
 }
 
 void

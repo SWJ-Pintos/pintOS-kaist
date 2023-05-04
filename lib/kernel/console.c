@@ -7,9 +7,10 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 
+
 static void vprintf_helper (char, void *);
 static void putchar_have_lock (uint8_t c);
-
+void putbuf (const char *buffer, size_t n);
 /* The console lock.
    Both the vga and serial layers do their own locking, so it's
    safe to call them at any time.
