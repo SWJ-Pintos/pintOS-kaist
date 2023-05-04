@@ -12,5 +12,8 @@ void process_activate (struct thread *next);
 void argument_stack(char **argv, int argc, struct intr_frame *if_); // if_는 인터럽트 스택 프레임 => 여기에다가 쌓는다.
 struct thread *get_child_process ( int pid );
 void remove_child_process (struct thread *cp);
+int process_add_file (struct file *f);
+struct file *process_get_file(int fd);
+void process_close_file(int fd);
 
 #endif /* userprog/process.h */

@@ -775,6 +775,6 @@ struct file *process_get_file (int fd) {
 void process_close_file (int fd) {
 	struct thread *th = thread_current();
 	struct file *close_file = *(th->fdt+fd);
-	close(close_file);
+	file_close(close_file);
 	*(th->fdt+fd) = NULL;	
 }

@@ -15,9 +15,7 @@ struct lock filesys_lock;
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-bool create(char *file , unsigned initial_size);
-bool remove(char *file);
-unsigned tell (int fd);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -70,28 +68,28 @@ syscall_handler (struct intr_frame *f ) {
 			// wait();
 			break;
 		case SYS_CREATE:
-			create(f->R.rdi, f->R.rsi);
+			f->R.rax = create(f->R.rdi, f->R.rsi);
 			break;
 		case SYS_REMOVE:
-			remove(f->R.rdi);
+			f->R.rax = remove(f->R.rdi);
 			break;
 		case SYS_OPEN:
-			open(f->R.rdi);
+			f->R.rax = open(f->R.rdi);
 			break;
 		case SYS_FILESIZE:
-			filesize(f->R.rdi);
+			f->R.rax = filesize(f->R.rdi);
 			break;
 		case SYS_READ:
-			read(f->R.rdi, f->R.rsi, f->R.rdx);
+			f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_WRITE:
-			write(f->R.rdi, f->R.rsi, f->R.rdx);
+			f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_SEEK:
 			seek(f->R.rdi, f->R.rsi);
 			break;
 		case SYS_TELL:
-			tell(f->R.rdi);
+			f->R.rax = tell(f->R.rdi);
 			break;
 		case SYS_CLOSE:
 			close(f->R.rdi);
@@ -121,7 +119,7 @@ exit(int status) {
 	printf("%s: exit(%d)\n", th->name, th->exit_status);
 
 	thread_exit();
-	return status;
+	// return status;
 }
 // exec 보류
 // int 
@@ -155,14 +153,18 @@ remove(char *file) {
 int
 open (const char *file) {
 	struct thread *th = thread_current();
+	struct file *opened_file;
 	int next = th->next_fd;
 	if (file == NULL) {
 		exit(-1);
 	}
-	filesys_open(file);
-	*(th->fdt+next) = file;
-	th->next_fd =+ 1;
-	return th->fdt+next;
+	opened_file = filesys_open(file);
+	if (!opened_file){
+		return -1;
+	}
+	*(th->fdt+next) = opened_file;
+	th->next_fd += 1;
+	return next;
 }
 
 int
@@ -178,16 +180,26 @@ filesize (int fd) {
 int
 read (int fd, void *buffer, unsigned size) {
 	lock_acquire(&filesys_lock);
-	struct file *read_file = process_get_file(fd);
-	if ( fd==0 ) {
-		buffer = input_getc();
-	}
-	else {
-		//return bytes_read;
-		file_read(read_file, buffer, size);
-	}
-	lock_release(&filesys_lock);
 	
+	struct file *read_file = process_get_file(fd);
+	if (read_file == NULL) {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+
+	if (fd == 0) {
+		// uint8_t *buf = buffer;
+        // for (unsigned i = 0; i < size; i++) {
+        //     buf[i] = input_getc();
+        // }
+		buffer = input_getc();
+		lock_release(&filesys_lock);
+		return sizeof((char *)buffer);
+	}
+
+	//return bytes_read;
+	lock_release(&filesys_lock);
+	return file_read(read_file, buffer, size);
 }
 
 int
