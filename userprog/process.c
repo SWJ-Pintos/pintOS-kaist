@@ -291,10 +291,10 @@ process_exit (void) {
 	// msg("%s: exit(%d)", curr->name, curr->exit_status);
 	struct thread *curr = thread_current();
 
-	// for (int i=0; i<FDCOUNT_LIMIT; i++) 
-	// 	close(i);
+	for (int i=0; i<FDCOUNT_LIMIT; i++) 
+		file_close(curr->fdt[i]);
 
-	// palloc_free_multiple(curr->fdt, FDT_PAGES);
+	palloc_free_multiple(curr->fdt, FDT_PAGES);
 	file_close(curr->running_file);
 	process_cleanup();
 

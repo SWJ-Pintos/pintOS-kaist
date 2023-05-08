@@ -29,8 +29,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-#define FDT_PAGES 3 // pages allocate for file descriptor tables (thread_create, process_exit)
-#define FDCOUNT_LIMIT FDT_PAGES*(1<<9) // fd_idx limit
+// for multi-oom , FDT_PAGES 3 -> 50, FDCOUNT_LIMIT FDT_PAGES*(1<<9) -> FDT_PAGES*200;
+#define FDT_PAGES 50 // pages allocate for file descriptor tables (thread_create, process_exit)
+#define FDCOUNT_LIMIT FDT_PAGES*200 // fd_idx limit
 
 /* A kernel thread or user process.
  *
