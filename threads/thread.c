@@ -178,7 +178,7 @@ thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
 	tid_t tid;
-	char *tok_name,* save_ptr;
+
 	ASSERT (function != NULL);
 
 	/* 스레드를 할당합니다. */
@@ -187,7 +187,14 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 	/* 스레드를 초기화합니다. */
 	init_thread (t, name, priority);
-	tid = t->tid = allocate_tid ();
+
+	// t->fdt = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	// if (t->fdt == NULL){
+	// 	return TID_ERROR;
+	// }
+	// t->next_fd = 2;
+
+	tid = t->tid = allocate_tid();
 
 	/* 예약된 경우 kernel_thread를 호출합니다.
 	 * 참고) rdi는 첫번째 인자, rsi는 두번째 인자입니다. */
@@ -200,17 +207,16 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	t->parent_process = thread_current();
+	// t->parent_process = thread_current();
+	list_push_back(&thread_current()->child_list, &t->child_elem);
 	/* load 성공 여부 
 		성공 1, 실패 0
 	*/
-	t->success_load = 0;
-	t->exit_status = 0;
 
-	t->fdt = (struct file **)palloc_get_page(PAL_ZERO);
-	t->next_fd = 2;
-
-
+	t->fdt = palloc_get_page(PAL_ZERO);
+	if (t->fdt == NULL)
+		return TID_ERROR;
+	
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
 
@@ -443,10 +449,20 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->magic = THREAD_MAGIC;
+	// sema_init(&t->load_sema, 0);
+
 	t->origin_priority = priority;
 	t->wait_on_lock = NULL;
-	t->magic = THREAD_MAGIC;
 	list_init (&t->donor_list);
+
+	t->running = NULL;
+	// t->success_load = 0;
+	t->exit_status = 0;
+	t->next_fd = 2;
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->exit_sema, 0);
 	list_init (&t->child_list);
 	// t->child_success_create = 0;
 }

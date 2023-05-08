@@ -6,6 +6,9 @@
         "*.inc": "c",
         "vm.h": "c",
         "stdio.h": "c",
-        "intrinsic.h": "c"
+        "intrinsic.h": "c",
+        "algorithm": "c",
+        "thread.h": "c",
+        "synch.h": "c"
     }
 }

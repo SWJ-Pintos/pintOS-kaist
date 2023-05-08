@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,6 +28,13 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+// for system call
+
+#define FDT_PAGES 3                       // pages to allocate for file descriptor tables (thread_create, process_exit)
+
+#define FDCOUNT_LIMIT 128 // Limit fdIdx
+
 
 /* A kernel thread or user process.
  *
@@ -104,16 +112,23 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 	struct list_elem donor_elem;
 	
+	struct intr_frame parent_if;
 	struct thread* parent_process;
-	struct list_elem child_list_elem;
+
+	struct list_elem child_elem;
 	struct list child_list;
 
-	bool success_load;
-	struct semaphore *exit_sema;
-	struct semaphore *load_sema;
+	// bool success_load;
+
+	struct file *running;
+	// struct semaphore *load_sema;
+	struct semaphore fork_sema;
+	struct semaphore wait_sema;
+	struct semaphore exit_sema;
 	/* exit 호출 시 종료 status */
 	// int child_success_create;
 
+	// int fd_idx;                     // fd테이블에 open spot의 인덱스
 	int exit_status;
 	//File_Descriptor_Table(FDT) 
 	struct file **fdt;
