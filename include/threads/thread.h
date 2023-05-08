@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,6 +28,9 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#define FDT_PAGES 3 // pages allocate for file descriptor tables (thread_create, process_exit)
+#define FDCOUNT_LIMIT FDT_PAGES*(1<<9) // fd_idx limit
 
 /* A kernel thread or user process.
  *
@@ -86,11 +90,6 @@ typedef int tid_t;
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
 
-/* Definition of struct file_descriptor */
-struct file_descriptor {
-  struct file *file;     /* Pointer to file opened by this file descriptor */
-  int fd;                /* File descriptor number */
-};
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -103,24 +102,15 @@ struct thread {
 	struct lock *wait_on_lock;
 
 	struct list donor_list;
+	struct list child_list;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list_elem donor_elem;
-	
-	struct thread* parent_process;
-	struct list_elem child_list_elem;
-	struct list child_list;
+	struct list_elem child_elem;
 
 	bool success_load;
 	int exit_status;
-	struct semaphore *exit_sema;
-	struct semaphore *load_sema;
-	/* exit 호출 시 종료 status */
-
-	// int child_success_create; 
-	struct file_descriptor file_descriptor_table[64]; /* Table of file descriptors */
-  	int next_fd; /* Next available file descriptor number */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -131,8 +121,20 @@ struct thread {
 	struct supplemental_page_table spt;
 #endif
 
+	struct semaphore fork_sema;
+	struct semaphore wait_sema;
+	struct semaphore exit_sema;
+	
+	struct file* running_file;
+	// struct list running_files;
+	// struct list_elem file_elem;
+	
+    struct file **fdt; /* Array of pointers to struct file */
+	int next_fd;		/* Next available file descriptor */
+
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
+	struct intr_frame parent_tf;		// parent interrupt frame
 	unsigned magic;                     /* Detects stack overflow. */
 };
 

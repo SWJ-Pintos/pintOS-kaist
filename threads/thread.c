@@ -188,6 +188,14 @@ thread_create (const char *name, int priority,
 
 	/* 스레드를 초기화합니다. */
 	init_thread (t, name, priority);
+
+	// 승훈이를 따라서 thread_create() 안에서 fdt를 정의해주어 보았다. PAL_ZERO와 FDT_PAGES에 주목.
+	t->fdt = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if (t->fdt == NULL){
+		return TID_ERROR;
+	}
+	t->next_fd = 2;
+
 	tid = t->tid = allocate_tid ();
 
 	/* 예약된 경우 kernel_thread를 호출합니다.
@@ -201,32 +209,21 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	t->parent_process = thread_current();
 	/* load 성공 여부 
 		성공 1, 실패 0
 	*/
 	t->success_load = 0;
 	t->exit_status = 0;
-
-	t->next_fd = 2;
-	t->file_descriptor_table[0].file = NULL;
-	t->file_descriptor_table[0].fd = 0;
-
-	t->file_descriptor_table[1].file = NULL;
-	t->file_descriptor_table[1].fd = 1;
+	t->running_file = NULL;
 	
-	for (int i=2; i < 64; i++) {
-		t->file_descriptor_table[i] = (struct file_descriptor )malloc(sizeof(struct file_descriptor));
-
-    	t->file_descriptor_table[i].file = NULL;
-    	t->file_descriptor_table[i].fd = -1;
-  	}
-	
-
+	// 초기화 중 놓친 부분!!! child_list에 바로 생성된 child를 push해주는 것을 까먹음...
+	list_push_back(&thread_current()->child_list, &t->child_elem);
 
 	/* 실행 대기열에 추가합니다. */
 	thread_unblock (t);
-
+	// project 1 핵심 오류 중 하나였던 부분... 
+	// thread_block() 안에 thread_yield()를 넣었기 때문에 오류가 난 것이라 생각했는데,
+	// 진짜 문제는 unblock 안에 yield가 들어가되  != idle_thread 인 경우를 걸러줬었어야 했던 것이었다.
 	// if (t->priority > thread_current()->priority) {
 	// 	thread_yield();
 	// }
@@ -465,7 +462,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 	list_init (&t->donor_list);
 	list_init (&t->child_list);
-	// t->child_success_create = 0;
+	t->running_file = NULL;
+
+	sema_init (&t->fork_sema, 0);
+	sema_init (&t->wait_sema, 0);
+	sema_init (&t->exit_sema, 0);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

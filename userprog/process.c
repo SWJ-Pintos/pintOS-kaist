@@ -53,13 +53,15 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	// 놓쳤던 부분!
+	// int main(void)의 run_actions(argv)의 run_task의 process_wait (process_create_initd (task))에서 argv를 받아오는데, 여기서의 argv의 file_name이 한 번 더 파싱되어야 한다!
+	char *token, *save_ptr;
+	token = strtok_r(file_name, " ", &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (token, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
-	// project 2 : user program syscall(exec)	
-	sema_down();
 
 	return tid;
 }
@@ -83,15 +85,32 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *curr = thread_current();
+	memcpy(&curr->parent_tf, if_, sizeof(struct intr_frame));
+
+	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, curr); // 여기서 자식 스레드가 생성이 완료된다. 
+	// thread_create()의 마지막에 thread_unblock()을 한다. 
+	// 말인즉 자식 스레드는 생성되자마자 대기큐에 들어가고, 고로 아직 __do_fork가 실행된 것은 아니다. 
+	
+	if (tid == TID_ERROR) 
+		return TID_ERROR;
+	
+	struct thread *child = get_child_process(tid);
+	
+	sema_down(&child->fork_sema);
+	// 자식의 fork_sema를 down 하면 현재 curr 즉 부모가 sema->waiter에 들어가며 thread_block() 당한다. 
+	// 그렇게 되면 대기큐의 맨 앞에 있던 것이 실행되겠지? 아마도 그건 아까 생성한 자식 스레드가 아닐지~
+	
+	if (child->exit_status == TID_ERROR) 
+		return TID_ERROR;
+	return tid;
 }
 
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
 static bool
-duplicate_pte (uint64_t *pte, void *va, void *aux) {
+duplicate_pte (uint64_t *pte, void *va, void *aux) { // pte = page table entry
 	struct thread *current = thread_current ();
 	struct thread *parent = (struct thread *) aux;
 	void *parent_page;
@@ -99,21 +118,31 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr(va)) {
+		return true; // 복사할 필요가 없어서 
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (newpage == NULL) 
+		return false;
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	writable = is_writable(pte);
+	memcpy(newpage, parent_page, PGSIZE);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		palloc_free_page(newpage);
+		return false;
 	}
 	return true;
 }
@@ -129,14 +158,19 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = (struct thread *) aux; // parent thread
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->parent_tf; // tf는 부모 프로세스가 fork()를 수행하던 도중 context switch가 일어나서 다른 스레드가 실행이 될 경우, tf에는 fork()를 수행하던 커널이 어디까지 작업했는지 정보가 저장됩니다 (threads/thread.c의 thread_launch() 함수 참고). 하지만 f는 user-level에서의 부모 프로세스가 실행되던 정보가 항상 담겨있습니다. fork()해서 만든 자식 프로세스는 부모 프로세스의 user-level 정보를 이어받아 user-level에서 실행을 마저 해야하므로, f를 복사하는 것이 맞습니다.
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+
+	if_.R.rax = 0; // 자식 스레드는 0을 반환하는 것이 규칙? 이다. rax는 return value가 담기는 레지스터이다.
+	// 아래는 테케 진행에 대한 참조 사항...!!!
+	// 유저에서 syscall fork가 호출됨 -> 커널의 process_fork가 호출되고, __do_fork가 호출됨 -> __do_fork가 끝날 시점에서 pid_t tid = process_fork(thread_name, f)는 0.
+	// -> process_fork로 복귀하여 struct thread *child = get_child_process(tid) == tid가 됨, 즉 자식 스레드가 allocated_tid()받은 고유 tid. process_fork return tid. syscall fork return tid.
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -152,25 +186,34 @@ __do_fork (void *aux) {
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;
 #endif
-
 	/* TODO: Your code goes here.
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
+	for(int i=0; i<FDCOUNT_LIMIT; i++){
+		if (parent->fdt[i] != NULL){
+			current->fdt[i] = file_duplicate(parent->fdt[i]);
+		}
+	}
+	current->next_fd = parent->next_fd;
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (succ){
+		sema_up(&current->fork_sema); // current 즉 우리가 생성했던 자식 스레드는 여기서 fork_sema를 up(반환)한다. 
+		// 그러면 다시 waiter 큐에 있던 부모가 thread_unblock() 되면서 대기 큐에 들어간다.
 		do_iret (&if_);
+	}
 error:
-	thread_exit ();
+	sema_up(&current->fork_sema);
+	// thread_exit ();
+	exit(TID_ERROR);
 }
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
-// start_process() (in Kaist-pintOS 자료)
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
@@ -187,7 +230,6 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
@@ -195,11 +237,10 @@ process_exec (void *f_name) {
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
-	// project 2 : user program syscall(exec)	
-	sema_up();
+
 	// FOR DEBUGGING~!
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-    
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -220,22 +261,45 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// pintos 가 바로 꺼지지 않도록 일단은, 무한루프 ( process_wait 를 제대로 구현하기 전까지 ! )
-	for (int i=0; i <10000000; i++) {}
 	// while (1){}
-	return -1;
+	// for (int i=0; i <10000000; i++) {}
+
+	struct thread *child = get_child_process(child_tid);
+
+	// 잘못된 예외 처리인 줄 알았긔.. child_list에 push를 안 해줬더니 평생 NULL이었던 것...
+	if (child == NULL) 
+		return -1;
+
+	sema_down(&child->wait_sema); // 1. 현재의 curr 즉 부모가 waiter에 들어가고 자식 스레드가 실행.
+
+	// 4. 
+	int exit_status = child->exit_status;
+	list_remove(&child->child_elem);
+
+	sema_up(&child->exit_sema); // 5. 자식 스레드가 ready list에 들어감, 현재 실행 중인 부모 스레드는 계속 자기 수행 실행. return exit_status.
+
+	return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-	struct thread *curr = thread_current ();
 	/* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	msg("%s: exit(%d)", curr->name, curr->exit_status);
+	// msg("%s: exit(%d)", curr->name, curr->exit_status);
+	struct thread *curr = thread_current();
 
-	process_cleanup ();
+	// for (int i=0; i<FDCOUNT_LIMIT; i++) 
+	// 	close(i);
+
+	// palloc_free_multiple(curr->fdt, FDT_PAGES);
+	file_close(curr->running_file);
+	process_cleanup();
+
+	sema_up(&curr->wait_sema); // 2. 자식 스레드의 수행 종료를 부모에게 알리는 것. wait_sema의 waiter 큐에 있던 부모가 ready list에 들어가게 되고, 현재 실행 중인 자식 스레드는 계속 자기 수행 실행.
+	sema_down(&curr->exit_sema); // 3. ready list에 있던 부모가 실행되고, 자식 스레드가 waiter에 들어감. 
 }
 
 /* Free the current process's resources. */
@@ -353,7 +417,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	char *token, *save_ptr;
 	int token_count = 0;
 
-	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 애 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
+	token = strtok_r(file_name, " ", &save_ptr); // 첫번째 이름을 받아온다. save_ptr: 앞에 대가리만 자르고 남은 문자열의 가장 맨 앞을 가리키는 포인터 주소값!
 	arg_list[token_count] = token; //arg_list[0] = file_name_first
 
 	while (token != NULL) {
@@ -370,11 +434,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	// printf("FILE_NAME : %s\n", file_name) == "args-single" 등 파일명(앞대가리).
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+
+	t->running_file = file;
+	file_deny_write(file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -456,11 +524,9 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file); <--- process_exit()으로 옮긴다. 
 	return success;
 }
-
-
 
 /* Checks whether PHDR describes a valid, loadable segment in
  * FILE and returns true if so, false otherwise. */
@@ -729,7 +795,7 @@ struct thread *get_child_process ( int pid ) {
 	struct list_elem *child;
 
 	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
-		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		struct thread *child_th = list_entry(child, struct thread, child_elem);
 		if (child_th->tid == pid) {
 			return child_th;
 		} 
@@ -743,7 +809,7 @@ void remove_child_process (struct thread *cp) {
 	struct list_elem *child;
 
 	for (child = list_begin(&th->child_list); child != list_end(&th->child_list); child = list_next(child)) {
-		struct thread *child_th = list_entry(child, struct thread, child_list_elem);
+		struct thread *child_th = list_entry(child, struct thread, child_elem);
 		if (child_th == cp) {
 			list_remove(child);
 			return;
@@ -752,15 +818,15 @@ void remove_child_process (struct thread *cp) {
 	return;
 }
 
-int process_add_file (struct file *f) {
-	struct thread *th = thread_current();
-	th->fdt = f;
-	th->fdt+1;
-	return fd;
-}
-struct file *process_get_file (int fd) {
+// int process_add_file (struct file *f) {
+// 	struct thread *th = thread_current();
+// 	th->fdt = f;
+// 	th->fdt+1;
+// 	return fd;
+// }
+// struct file *process_get_file (int fd) {
 
-}
-void process_close_file (int fd) {
+// }
+// void process_close_file (int fd) {
 	
-}
+// }
